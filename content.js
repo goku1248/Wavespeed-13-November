@@ -7,7 +7,14 @@ async function createCommentsPanel() {
         <div id="comments-resizer"></div>
         <div class="comments-header" id="comments-header">
             <h3>Comments</h3>
-            <button id="toggle-comments">−</button>
+            <div class="comments-controls">
+                <select id="sort-comments" class="sort-dropdown">
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="most-liked">Most Liked</option>
+                </select>
+                <button id="toggle-comments">−</button>
+            </div>
         </div>
         <div class="comments-content">
             <div id="auth-message" class="auth-message hidden">
@@ -59,6 +66,16 @@ async function createCommentsPanel() {
 
     // Initial viewport check
     ensurePanelInViewport(panel);
+
+    // Add event listener for sort dropdown
+    const sortDropdown = document.getElementById('sort-comments');
+    if (sortDropdown) {
+        sortDropdown.addEventListener('change', function() {
+            const newSortBy = this.value;
+            console.log('Sort changed to:', newSortBy);
+            loadComments(newSortBy);
+        });
+    }
 
     // Load existing comments
     await loadComments();
@@ -241,14 +258,23 @@ function createComment({text, user, timestamp}) {
     };
 }
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = 'https://wavespeed-final-for-render-com.onrender.com/api';
+
+// Add this at the top of the file with other global variables
+let currentSortBy = 'newest';
 
 // Load and display comments
-async function loadComments() {
-    console.log('Loading comments...');
+async function loadComments(sortBy = currentSortBy) {
+    console.log('Loading comments with sort:', sortBy);
+    currentSortBy = sortBy;
     const commentsList = document.getElementById('comments-list');
+    const sortDropdown = document.getElementById('sort-comments');
     const currentUrl = window.location.href;
     let userEmail = null;
+    
+    if (sortDropdown) {
+        sortDropdown.value = sortBy;
+    }
     
     try {
         const authResult = await chrome.storage.local.get(['user']);
@@ -269,16 +295,19 @@ async function loadComments() {
                 statusText: response.statusText,
                 body: errorText
             });
-            throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+            throw new Error(`Failed to load comments: ${errorText}`);
         }
         
-        const comments = await response.json();
+        let comments = await response.json();
         console.log('Received comments:', comments);
         
         if (!Array.isArray(comments)) {
             console.error('Invalid comments data received:', comments);
             throw new Error('Invalid response format from server');
         }
+
+        comments = sortComments(comments, sortBy);
+        console.log('Sorted comments by:', sortBy);
 
         if (comments.length === 0) {
             commentsList.innerHTML = '<div class="no-comments">No comments yet. Be the first to comment!</div>';
@@ -349,6 +378,8 @@ async function submitComment() {
             }
 
             const currentUrl = window.location.href;
+            console.log('Submitting comment:', { url: currentUrl, text: comment, user: result.user });
+            
             const response = await fetch(`${API_BASE_URL}/comments`, {
                 method: 'POST',
                 headers: {
@@ -362,13 +393,23 @@ async function submitComment() {
             });
 
             if (!response.ok) {
-                throw new Error('Failed to submit comment');
+                const errorText = await response.text();
+                console.error('Failed to submit comment:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    error: errorText
+                });
+                throw new Error(`Failed to submit comment: ${errorText}`);
             }
 
+            const savedComment = await response.json();
+            console.log('Comment submitted successfully:', savedComment);
+
             input.value = '';
-            loadComments();
+            await loadComments(currentSortBy);
         } catch (error) {
             console.error('Failed to submit comment:', error);
+            alert('Failed to submit comment. Please try again.');
         }
     }
 }
@@ -662,6 +703,21 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// Add sorting function
+function sortComments(comments, sortBy) {
+    return [...comments].sort((a, b) => {
+        switch (sortBy) {
+            case 'oldest':
+                return new Date(a.timestamp) - new Date(b.timestamp);
+            case 'most-liked':
+                return (b.likes || 0) - (a.likes || 0);
+            case 'newest':
+            default:
+                return new Date(b.timestamp) - new Date(a.timestamp);
+        }
+    });
+}
 
 // Initialize the panel
 createCommentsPanel(); 

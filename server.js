@@ -12,18 +12,37 @@ app.use(express.json());
 // MongoDB connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/webpage-comments';
 
+// Add connection status tracking
+let isConnected = false;
+
 mongoose.connect(MONGODB_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true
 }).then(() => {
     console.log('Connected to MongoDB Atlas');
+    isConnected = true;
 }).catch((error) => {
     console.error('MongoDB connection error:', error);
+    isConnected = false;
+});
+
+// Add connection monitoring
+mongoose.connection.on('disconnected', () => {
+    console.error('MongoDB disconnected');
+    isConnected = false;
+});
+
+mongoose.connection.on('reconnected', () => {
+    console.log('MongoDB reconnected');
+    isConnected = true;
 });
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'ok' });
+    res.status(200).json({ 
+        status: 'ok',
+        database: isConnected ? 'connected' : 'disconnected'
+    });
 });
 
 // Comment Schema
@@ -62,6 +81,11 @@ const Comment = mongoose.model('Comment', commentSchema);
 // Get comments for a URL
 app.get('/api/comments', async (req, res) => {
     try {
+        if (!isConnected) {
+            console.error('Database not connected');
+            return res.status(500).json({ error: 'Database connection error' });
+        }
+
         const { url } = req.query;
         console.log('Fetching comments for URL:', url);
         
@@ -94,10 +118,16 @@ app.get('/api/comments', async (req, res) => {
 // Create a new comment
 app.post('/api/comments', async (req, res) => {
     try {
+        if (!isConnected) {
+            console.error('Database not connected');
+            return res.status(500).json({ error: 'Database connection error' });
+        }
+
         const { url, text, user } = req.body;
         console.log('Creating new comment:', { url, text, user });
 
         if (!url || !text || !user) {
+            console.error('Missing required fields:', { url, text, user });
             return res.status(400).json({ error: 'URL, text, and user are required' });
         }
 
@@ -107,11 +137,17 @@ app.post('/api/comments', async (req, res) => {
             user,
             timestamp: new Date()
         });
-        await comment.save();
-        console.log('Comment created successfully:', comment._id);
-        res.json(comment);
+
+        console.log('Saving comment to database...');
+        const savedComment = await comment.save();
+        console.log('Comment created successfully:', savedComment._id);
+        res.json(savedComment);
     } catch (error) {
         console.error('Error creating comment:', error);
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack
+        });
         res.status(500).json({ error: error.message });
     }
 });

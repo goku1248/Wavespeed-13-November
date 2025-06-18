@@ -21,12 +21,9 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
-    background: #f8f9fa;
-    border-radius: 8px 8px 0 0;
-    border-bottom: 1px solid #e9ecef;
-    cursor: move;
-    user-select: none;
+    padding: 10px;
+    background-color: #f5f5f5;
+    border-bottom: 1px solid #ddd;
 }
 
 .comments-header h3 {
@@ -332,4 +329,47 @@
 }
 #comments-bottom-resizer:hover {
     background: #adb5bd;
+}
+
+.comments-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sort-dropdown {
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    font-size: 14px;
+    cursor: pointer;
+    outline: none;
+    min-width: 120px;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 16px;
+    padding-right: 30px;
+}
+
+.sort-dropdown:hover {
+    border-color: #4a90e2;
+    background-color: #f8f9fa;
+}
+
+.sort-dropdown:focus {
+    border-color: #4a90e2;
+    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+    outline: none;
+}
+
+.sort-dropdown option {
+    padding: 8px;
+    background-color: white;
+}
+
+.sort-dropdown option:hover {
+    background-color: #f8f9fa;
 } 
