@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generate Icons</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .icon-container { margin: 20px 0; }
+        canvas { border: 1px solid #ccc; margin: 10px; }
+        .download-link { display: block; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>Icon Generator</h1>
+    <p>Click the download links below each icon to save them.</p>
+    
+    <div class="icon-container">
+        <h2>16x16 Icon</h2>
+        <canvas id="icon16" width="16" height="16"></canvas>
+        <a id="download16" class="download-link" download="icon16.png">Download 16x16 Icon</a>
+    </div>
+
+    <div class="icon-container">
+        <h2>48x48 Icon</h2>
+        <canvas id="icon48" width="48" height="48"></canvas>
+        <a id="download48" class="download-link" download="icon48.png">Download 48x48 Icon</a>
+    </div>
+
+    <div class="icon-container">
+        <h2>128x128 Icon</h2>
+        <canvas id="icon128" width="128" height="128"></canvas>
+        <a id="download128" class="download-link" download="icon128.png">Download 128x128 Icon</a>
+    </div>
+
+    <script>
+        function drawIcon(canvasId, size) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            // Draw background
+            ctx.fillStyle = '#007bff';
+            ctx.beginPath();
+            ctx.roundRect(0, 0, size, size, size * 0.15);
+            ctx.fill();
+            
+            // Draw comment box
+            const padding = size * 0.25;
+            const boxSize = size - (padding * 2);
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = size * 0.06;
+            
+            // Draw box
+            ctx.strokeRect(padding, padding, boxSize, boxSize);
+            
+            // Draw horizontal line
+            ctx.beginPath();
+            ctx.moveTo(padding, size/2);
+            ctx.lineTo(size - padding, size/2);
+            ctx.stroke();
+            
+            // Draw vertical line
+            ctx.beginPath();
+            ctx.moveTo(size/2, padding);
+            ctx.lineTo(size/2, size - padding);
+            ctx.stroke();
+
+            // Set up download link
+            const downloadLink = document.getElementById(`download${size}`);
+            downloadLink.href = canvas.toDataURL('image/png');
+        }
+
+        // Draw all icons
+        drawIcon('icon16', 16);
+        drawIcon('icon48', 48);
+        drawIcon('icon128', 128);
+    </script>
+</body>
+</html> 
