@@ -1,13 +1,11 @@
 #webpage-comments-panel {
     position: fixed;
-    right: 20px;
     top: 20px;
+    right: 20px;
     width: 300px;
-    min-width: 220px;
-    max-width: 600px;
-    min-height: 300px;
-    max-height: 800px;
+    height: 500px;
     background: white;
+    border: 1px solid #ddd;
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     z-index: 10000;
@@ -329,9 +327,11 @@
     cursor: ew-resize;
     background: #e9ecef;
     border-radius: 8px 0 0 8px;
-    z-index: 10001;
+    z-index: 10003;
     transition: background 0.2s;
+    pointer-events: auto;
 }
+
 #comments-resizer:hover {
     background: #adb5bd;
 }
@@ -345,9 +345,11 @@
     cursor: ns-resize;
     background: #e9ecef;
     border-radius: 0 0 8px 8px;
-    z-index: 10001;
+    z-index: 10003;
     transition: background 0.2s;
+    pointer-events: auto;
 }
+
 #comments-bottom-resizer:hover {
     background: #adb5bd;
 }

@@ -121,10 +121,18 @@ async function createCommentsPanel() {
 
 function addPanelResizer(panel) {
     const resizer = panel.querySelector('#comments-resizer');
+    console.log('Resizer element:', resizer);
+    
+    if (!resizer) {
+        console.error('Resizer element not found!');
+        return;
+    }
+    
     let minWidth = 220;
     let maxWidth = 0;
 
     resizer.addEventListener('mousedown', function(e) {
+        console.log('Resizer mousedown event triggered');
         const panelRect = panel.getBoundingClientRect();
         const startX = e.clientX;
         const startLeft = panelRect.left;
@@ -133,6 +141,7 @@ function addPanelResizer(panel) {
         maxWidth = window.innerWidth;
         document.body.style.cursor = 'ew-resize';
         e.preventDefault();
+        e.stopPropagation();
 
         function onMouseMove(e) {
             let deltaX = e.clientX - startX;
@@ -152,6 +161,7 @@ function addPanelResizer(panel) {
         }
 
         function onMouseUp() {
+            console.log('Resizer mouseup event triggered');
             document.body.style.cursor = '';
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
@@ -160,6 +170,11 @@ function addPanelResizer(panel) {
 
         window.addEventListener('mousemove', onMouseMove);
         window.addEventListener('mouseup', onMouseUp);
+    });
+    
+    // Add click event for debugging
+    resizer.addEventListener('click', function(e) {
+        console.log('Resizer clicked');
     });
 }
 
