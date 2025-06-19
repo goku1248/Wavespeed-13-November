@@ -424,6 +424,8 @@ async function handleLikeDislike(commentId, action) {
             return;
         }
 
+        console.log(`Handling ${action} for comment:`, commentId);
+
         const response = await fetch(`${API_BASE_URL}/comments/${commentId}/reaction`, {
             method: 'PUT',
             headers: {
@@ -436,12 +438,22 @@ async function handleLikeDislike(commentId, action) {
         });
 
         if (!response.ok) {
-            throw new Error('Failed to update reaction');
+            const errorText = await response.text();
+            console.error('Failed to update reaction:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText
+            });
+            throw new Error(`Failed to update reaction: ${errorText}`);
         }
 
-        loadComments();
+        const updatedComment = await response.json();
+        console.log('Reaction updated successfully:', updatedComment);
+
+        await loadComments(currentSortBy);
     } catch (error) {
         console.error('Failed to update like/dislike:', error);
+        alert('Failed to update reaction. Please try again.');
     }
 }
 
@@ -583,28 +595,62 @@ async function deleteComment(commentId) {
 // Modify renderComments to use comment IDs
 function renderComments(comments, userEmail, currentUrl) {
     return comments.map(comment => {
-        const isOwner = userEmail && comment.user.email === userEmail;
+        const isLiked = comment.likedBy && comment.likedBy.includes(userEmail);
+        const isDisliked = comment.dislikedBy && comment.dislikedBy.includes(userEmail);
+        
         return `
             <div class="comment" data-comment-id="${comment._id}">
                 <div class="comment-header">
-                    <img src="${comment.user.picture}" alt="User avatar" class="comment-avatar">
-                    <div class="comment-user-info">
-                        <div class="comment-username">${comment.user.name}</div>
-                        <div class="comment-timestamp">${new Date(comment.timestamp).toLocaleString()}</div>
+                    <img src="${comment.user.picture}" alt="Profile" class="comment-avatar">
+                    <div class="comment-info">
+                        <div class="comment-author">${comment.user.name}</div>
+                        <div class="comment-time">${new Date(comment.timestamp).toLocaleString()}</div>
                     </div>
                 </div>
                 <div class="comment-text" id="comment-text-${comment._id}">${comment.text}</div>
                 <div class="comment-actions">
-                    <button class="like-btn" data-comment-id="${comment._id}" ${userEmail && comment.likedBy && comment.likedBy.includes(userEmail) ? 'disabled' : ''}>👍 <span>${comment.likes || 0}</span></button>
-                    <button class="dislike-btn" data-comment-id="${comment._id}" ${userEmail && comment.dislikedBy && comment.dislikedBy.includes(userEmail) ? 'disabled' : ''}>👎 <span>${comment.dislikes || 0}</span></button>
+                    <button class="like-btn ${isLiked ? 'liked' : ''}" data-comment-id="${comment._id}">
+                        👍 ${comment.likes || 0}
+                    </button>
+                    <button class="dislike-btn ${isDisliked ? 'disliked' : ''}" data-comment-id="${comment._id}">
+                        👎 ${comment.dislikes || 0}
+                    </button>
                     <button class="reply-btn" data-comment-id="${comment._id}">Reply</button>
-                    ${isOwner ? `<button class="edit-btn" data-comment-id="${comment._id}">Edit</button><button class="delete-btn" data-comment-id="${comment._id}">Delete</button>` : ''}
+                    ${comment.user.email === userEmail ? `
+                        <button class="edit-btn" data-comment-id="${comment._id}">Edit</button>
+                        <button class="delete-btn" data-comment-id="${comment._id}">Delete</button>
+                    ` : ''}
                 </div>
-                <div class="reply-input-container" id="reply-input-${comment._id}" style="display:none; margin-top:8px;"></div>
-                <div class="edit-input-container" id="edit-input-${comment._id}" style="display:none; margin-top:8px;"></div>
-                <div class="replies" style="margin-left:24px;">
-                    ${comment.replies && comment.replies.length > 0 ? renderComments(comment.replies, userEmail, currentUrl) : ''}
-                </div>
+                <div class="edit-input-container" id="edit-input-${comment._id}" style="display:none;"></div>
+                <div class="reply-input-container" id="reply-input-${comment._id}" style="display:none;"></div>
+                ${comment.replies && comment.replies.length > 0 ? `
+                    <div class="replies">
+                        ${comment.replies.map(reply => {
+                            const isReplyLiked = reply.likedBy && reply.likedBy.includes(userEmail);
+                            const isReplyDisliked = reply.dislikedBy && reply.dislikedBy.includes(userEmail);
+                            return `
+                                <div class="reply" data-reply-id="${reply._id}">
+                                    <div class="reply-header">
+                                        <img src="${reply.user.picture}" alt="Profile" class="reply-avatar">
+                                        <div class="reply-info">
+                                            <div class="reply-author">${reply.user.name}</div>
+                                            <div class="reply-time">${new Date(reply.timestamp).toLocaleString()}</div>
+                                        </div>
+                                    </div>
+                                    <div class="reply-text">${reply.text}</div>
+                                    <div class="reply-actions">
+                                        <button class="like-btn ${isReplyLiked ? 'liked' : ''}" data-reply-id="${reply._id}">
+                                            👍 ${reply.likes || 0}
+                                        </button>
+                                        <button class="dislike-btn ${isReplyDisliked ? 'disliked' : ''}" data-reply-id="${reply._id}">
+                                            👎 ${reply.dislikes || 0}
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                ` : ''}
             </div>
         `;
     }).join('');

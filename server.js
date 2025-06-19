@@ -185,6 +185,11 @@ app.post('/api/comments/:commentId/replies', async (req, res) => {
 // Update like/dislike status
 app.put('/api/comments/:commentId/reaction', async (req, res) => {
     try {
+        if (!isConnected) {
+            console.error('Database not connected');
+            return res.status(500).json({ error: 'Database connection error' });
+        }
+
         const { type, userEmail } = req.body;
         const commentId = req.params.commentId;
         console.log('Updating reaction:', { commentId, type, userEmail });
@@ -199,7 +204,13 @@ app.put('/api/comments/:commentId/reaction', async (req, res) => {
         }
 
         if (type === 'like') {
-            if (!comment.likedBy.includes(userEmail)) {
+            if (comment.likedBy.includes(userEmail)) {
+                // User already liked, so unlike
+                comment.likes -= 1;
+                comment.likedBy = comment.likedBy.filter(email => email !== userEmail);
+                console.log('User unliked the comment');
+            } else {
+                // User hasn't liked, so like
                 comment.likes += 1;
                 comment.likedBy.push(userEmail);
                 // Remove dislike if exists
@@ -207,9 +218,16 @@ app.put('/api/comments/:commentId/reaction', async (req, res) => {
                     comment.dislikes -= 1;
                     comment.dislikedBy = comment.dislikedBy.filter(email => email !== userEmail);
                 }
+                console.log('User liked the comment');
             }
         } else if (type === 'dislike') {
-            if (!comment.dislikedBy.includes(userEmail)) {
+            if (comment.dislikedBy.includes(userEmail)) {
+                // User already disliked, so undislike
+                comment.dislikes -= 1;
+                comment.dislikedBy = comment.dislikedBy.filter(email => email !== userEmail);
+                console.log('User undisliked the comment');
+            } else {
+                // User hasn't disliked, so dislike
                 comment.dislikes += 1;
                 comment.dislikedBy.push(userEmail);
                 // Remove like if exists
@@ -217,6 +235,7 @@ app.put('/api/comments/:commentId/reaction', async (req, res) => {
                     comment.likes -= 1;
                     comment.likedBy = comment.likedBy.filter(email => email !== userEmail);
                 }
+                console.log('User disliked the comment');
             }
         }
 
