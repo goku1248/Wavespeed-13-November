@@ -13,6 +13,7 @@ async function createCommentsPanel() {
                     <option value="oldest">Oldest First</option>
                     <option value="most-liked">Most Liked</option>
                 </select>
+                <button id="test-sort" style="margin-left: 5px; padding: 2px 5px; font-size: 10px;">Test</button>
                 <button id="toggle-comments">−</button>
             </div>
         </div>
@@ -53,6 +54,31 @@ async function createCommentsPanel() {
         savePanelState(panel);
     });
     document.getElementById('submit-comment').addEventListener('click', submitComment);
+    
+    // Add test button for debugging
+    const testButton = document.getElementById('test-sort');
+    if (testButton) {
+        testButton.addEventListener('click', () => {
+            console.log('Test button clicked');
+            const sortDropdown = document.getElementById('sort-comments');
+            if (sortDropdown) {
+                // Cycle through options
+                const options = ['newest', 'oldest', 'most-liked'];
+                const currentIndex = options.indexOf(sortDropdown.value);
+                const nextIndex = (currentIndex + 1) % options.length;
+                const nextOption = options[nextIndex];
+                
+                console.log('Changing from', sortDropdown.value, 'to', nextOption);
+                sortDropdown.value = nextOption;
+                
+                // Trigger change event manually
+                const event = new Event('change', { bubbles: true });
+                sortDropdown.dispatchEvent(event);
+                
+                loadComments(nextOption);
+            }
+        });
+    }
 
     // Add window resize handler
     let resizeTimeout;
@@ -69,12 +95,29 @@ async function createCommentsPanel() {
 
     // Add event listener for sort dropdown
     const sortDropdown = document.getElementById('sort-comments');
+    console.log('Sort dropdown element:', sortDropdown);
+    
     if (sortDropdown) {
-        sortDropdown.addEventListener('change', function() {
+        sortDropdown.addEventListener('change', function(e) {
             const newSortBy = this.value;
-            console.log('Sort changed to:', newSortBy);
+            console.log('Sort dropdown changed to:', newSortBy);
+            console.log('Event:', e);
             loadComments(newSortBy);
         });
+        
+        // Also add click event for debugging
+        sortDropdown.addEventListener('click', function(e) {
+            console.log('Sort dropdown clicked:', e);
+        });
+        
+        // Test if we can programmatically change the value
+        setTimeout(() => {
+            console.log('Testing dropdown functionality...');
+            console.log('Current value:', sortDropdown.value);
+            console.log('Options:', sortDropdown.options);
+        }, 1000);
+    } else {
+        console.error('Sort dropdown not found!');
     }
 
     // Load existing comments
