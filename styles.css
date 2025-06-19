@@ -358,7 +358,13 @@
     gap: 10px;
 }
 
-.sort-dropdown {
+/* Custom Dropdown Styles */
+.custom-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.sort-dropdown-btn {
     padding: 6px 12px;
     border: 1px solid #ddd;
     border-radius: 4px;
@@ -367,34 +373,64 @@
     cursor: pointer;
     outline: none;
     min-width: 120px;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right 8px center;
-    background-size: 16px;
-    padding-right: 30px;
-    position: relative;
-    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: all 0.2s ease;
 }
 
-.sort-dropdown:hover {
+.sort-dropdown-btn:hover {
     border-color: #4a90e2;
     background-color: #f8f9fa;
 }
 
-.sort-dropdown:focus {
+.sort-dropdown-btn:focus {
     border-color: #4a90e2;
     box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
-    outline: none;
 }
 
-.sort-dropdown option {
-    padding: 8px;
+.dropdown-arrow {
+    font-size: 10px;
+    transition: transform 0.2s ease;
+}
+
+.sort-dropdown-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
     background-color: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    z-index: 10002;
+    display: none;
+    margin-top: 2px;
 }
 
-.sort-dropdown option:hover {
+.sort-dropdown-menu.show {
+    display: block;
+}
+
+.dropdown-option {
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.dropdown-option:hover {
     background-color: #f8f9fa;
+}
+
+.dropdown-option:first-child {
+    border-radius: 4px 4px 0 0;
+}
+
+.dropdown-option:last-child {
+    border-radius: 0 0 4px 4px;
+}
+
+/* Remove old dropdown styles */
+.sort-dropdown {
+    display: none;
 } 

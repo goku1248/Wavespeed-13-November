@@ -8,12 +8,17 @@ async function createCommentsPanel() {
         <div class="comments-header" id="comments-header">
             <h3>Comments</h3>
             <div class="comments-controls">
-                <select id="sort-comments" class="sort-dropdown">
-                    <option value="newest">Newest First</option>
-                    <option value="oldest">Oldest First</option>
-                    <option value="most-liked">Most Liked</option>
-                </select>
-                <button id="test-sort" style="margin-left: 5px; padding: 2px 5px; font-size: 10px;">Test</button>
+                <div class="custom-dropdown">
+                    <button id="sort-dropdown-btn" class="sort-dropdown-btn">
+                        <span id="sort-dropdown-text">Newest First</span>
+                        <span class="dropdown-arrow">▼</span>
+                    </button>
+                    <div id="sort-dropdown-menu" class="sort-dropdown-menu">
+                        <div class="dropdown-option" data-value="newest">Newest First</div>
+                        <div class="dropdown-option" data-value="oldest">Oldest First</div>
+                        <div class="dropdown-option" data-value="most-liked">Most Liked</div>
+                    </div>
+                </div>
                 <button id="toggle-comments">−</button>
             </div>
         </div>
@@ -55,27 +60,43 @@ async function createCommentsPanel() {
     });
     document.getElementById('submit-comment').addEventListener('click', submitComment);
     
-    // Add test button for debugging
-    const testButton = document.getElementById('test-sort');
-    if (testButton) {
-        testButton.addEventListener('click', () => {
-            console.log('Test button clicked');
-            const sortDropdown = document.getElementById('sort-comments');
-            if (sortDropdown) {
-                // Cycle through options
-                const options = ['newest', 'oldest', 'most-liked'];
-                const currentIndex = options.indexOf(sortDropdown.value);
-                const nextIndex = (currentIndex + 1) % options.length;
-                const nextOption = options[nextIndex];
+    // Add custom dropdown functionality
+    const dropdownBtn = document.getElementById('sort-dropdown-btn');
+    const dropdownMenu = document.getElementById('sort-dropdown-menu');
+    const dropdownText = document.getElementById('sort-dropdown-text');
+    
+    if (dropdownBtn && dropdownMenu) {
+        // Toggle dropdown menu
+        dropdownBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dropdownMenu.classList.toggle('show');
+            console.log('Dropdown toggled');
+        });
+        
+        // Handle option selection
+        dropdownMenu.addEventListener('click', (e) => {
+            const option = e.target.closest('.dropdown-option');
+            if (option) {
+                const value = option.getAttribute('data-value');
+                const text = option.textContent;
                 
-                console.log('Changing from', sortDropdown.value, 'to', nextOption);
-                sortDropdown.value = nextOption;
+                console.log('Selected option:', value, text);
                 
-                // Trigger change event manually
-                const event = new Event('change', { bubbles: true });
-                sortDropdown.dispatchEvent(event);
+                // Update button text
+                dropdownText.textContent = text;
                 
-                loadComments(nextOption);
+                // Hide dropdown
+                dropdownMenu.classList.remove('show');
+                
+                // Load comments with new sort
+                loadComments(value);
+            }
+        });
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!dropdownBtn.contains(e.target) && !dropdownMenu.contains(e.target)) {
+                dropdownMenu.classList.remove('show');
             }
         });
     }
@@ -92,33 +113,6 @@ async function createCommentsPanel() {
 
     // Initial viewport check
     ensurePanelInViewport(panel);
-
-    // Add event listener for sort dropdown
-    const sortDropdown = document.getElementById('sort-comments');
-    console.log('Sort dropdown element:', sortDropdown);
-    
-    if (sortDropdown) {
-        sortDropdown.addEventListener('change', function(e) {
-            const newSortBy = this.value;
-            console.log('Sort dropdown changed to:', newSortBy);
-            console.log('Event:', e);
-            loadComments(newSortBy);
-        });
-        
-        // Also add click event for debugging
-        sortDropdown.addEventListener('click', function(e) {
-            console.log('Sort dropdown clicked:', e);
-        });
-        
-        // Test if we can programmatically change the value
-        setTimeout(() => {
-            console.log('Testing dropdown functionality...');
-            console.log('Current value:', sortDropdown.value);
-            console.log('Options:', sortDropdown.options);
-        }, 1000);
-    } else {
-        console.error('Sort dropdown not found!');
-    }
 
     // Load existing comments
     await loadComments();
