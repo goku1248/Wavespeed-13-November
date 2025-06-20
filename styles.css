@@ -167,7 +167,7 @@
     background: #555;
 }
 
-.comment-actions {
+.comment-actions, .reply-actions {
     display: flex;
     gap: 8px;
     margin-top: 8px;
