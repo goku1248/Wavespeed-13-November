@@ -372,48 +372,44 @@ async function loadComments(sortBy = currentSortBy) {
         commentsList.innerHTML = renderComments(comments, userEmail, currentUrl);
         console.log('Comments rendered successfully');
 
-        // Add event listeners for like/dislike
-        document.querySelectorAll('.like-btn').forEach(btn => {
+        // Add event listeners for comment actions
+        document.querySelectorAll('.comment > .comment-actions .like-btn').forEach(btn => {
             btn.addEventListener('click', async function() {
                 const commentId = this.getAttribute('data-comment-id');
                 await handleLikeDislike(commentId, 'like');
             });
         });
-        document.querySelectorAll('.dislike-btn').forEach(btn => {
+        document.querySelectorAll('.comment > .comment-actions .dislike-btn').forEach(btn => {
             btn.addEventListener('click', async function() {
                 const commentId = this.getAttribute('data-comment-id');
                 await handleLikeDislike(commentId, 'dislike');
             });
         });
-        // Add event listeners for trust/distrust
-        document.querySelectorAll('.trust-btn').forEach(btn => {
+        document.querySelectorAll('.comment > .comment-actions .trust-btn').forEach(btn => {
             btn.addEventListener('click', async function() {
                 const commentId = this.getAttribute('data-comment-id');
                 await handleLikeDislike(commentId, 'trust');
             });
         });
-        document.querySelectorAll('.distrust-btn').forEach(btn => {
+        document.querySelectorAll('.comment > .comment-actions .distrust-btn').forEach(btn => {
             btn.addEventListener('click', async function() {
                 const commentId = this.getAttribute('data-comment-id');
                 await handleLikeDislike(commentId, 'distrust');
             });
         });
-        // Add event listeners for reply
-        document.querySelectorAll('.reply-btn').forEach(btn => {
+        document.querySelectorAll('.comment > .comment-actions .reply-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const commentId = this.getAttribute('data-comment-id');
                 showReplyInput(commentId);
             });
         });
-        // Add event listeners for edit
-        document.querySelectorAll('.edit-btn').forEach(btn => {
+        document.querySelectorAll('.comment > .comment-actions .edit-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const commentId = this.getAttribute('data-comment-id');
                 showEditInput(commentId);
             });
         });
-        // Add event listeners for delete
-        document.querySelectorAll('.delete-btn').forEach(btn => {
+        document.querySelectorAll('.comment > .comment-actions .delete-btn').forEach(btn => {
             btn.addEventListener('click', async function() {
                 const commentId = this.getAttribute('data-comment-id');
                 if (confirm('Are you sure you want to delete this comment and all its replies?')) {
@@ -421,22 +417,8 @@ async function loadComments(sortBy = currentSortBy) {
                 }
             });
         });
-        // Add event listeners for reply trust/distrust
-        document.querySelectorAll('.reply .trust-btn').forEach(btn => {
-            btn.addEventListener('click', async function() {
-                const replyId = this.getAttribute('data-reply-id');
-                const commentId = this.closest('.comment').getAttribute('data-comment-id');
-                await handleReplyReaction(commentId, replyId, 'trust');
-            });
-        });
-        document.querySelectorAll('.reply .distrust-btn').forEach(btn => {
-            btn.addEventListener('click', async function() {
-                const replyId = this.getAttribute('data-reply-id');
-                const commentId = this.closest('.comment').getAttribute('data-comment-id');
-                await handleReplyReaction(commentId, replyId, 'distrust');
-            });
-        });
-        // Add event listeners for reply like/dislike
+
+        // Add event listeners for reply actions
         document.querySelectorAll('.reply .like-btn').forEach(btn => {
             btn.addEventListener('click', async function() {
                 const replyId = this.getAttribute('data-reply-id');
@@ -451,14 +433,33 @@ async function loadComments(sortBy = currentSortBy) {
                 await handleReplyReaction(commentId, replyId, 'dislike');
             });
         });
-        // Add event listeners for reply edit/delete
-        document.querySelectorAll('.edit-reply-btn').forEach(btn => {
+        document.querySelectorAll('.reply .trust-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const replyId = this.getAttribute('data-reply-id');
+                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                await handleReplyReaction(commentId, replyId, 'trust');
+            });
+        });
+        document.querySelectorAll('.reply .distrust-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const replyId = this.getAttribute('data-reply-id');
+                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                await handleReplyReaction(commentId, replyId, 'distrust');
+            });
+        });
+        document.querySelectorAll('.reply .reply-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const commentId = this.getAttribute('data-comment-id');
+                showReplyInput(commentId);
+            });
+        });
+        document.querySelectorAll('.reply .edit-reply-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const replyId = this.getAttribute('data-reply-id');
                 showEditReplyInput(replyId);
             });
         });
-        document.querySelectorAll('.delete-reply-btn').forEach(btn => {
+        document.querySelectorAll('.reply .delete-reply-btn').forEach(btn => {
             btn.addEventListener('click', async function() {
                 const replyId = this.getAttribute('data-reply-id');
                 const commentId = this.closest('.comment').getAttribute('data-comment-id');
