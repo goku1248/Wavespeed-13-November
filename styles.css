@@ -88,17 +88,17 @@
 
 .comment-username {
     font-weight: 500;
-    color: #0d1117;
+    color: #000000 !important;
     font-size: 14px;
 }
 
 .comment-timestamp {
     font-size: 12px;
-    color: #57606a;
+    color: #333333 !important;
 }
 
 .comment-text {
-    color: #212529;
+    color: #000000 !important;
     word-wrap: break-word;
     font-size: 14px;
     line-height: 1.4;
@@ -463,4 +463,15 @@
 /* Remove old dropdown styles */
 .sort-dropdown {
     display: none;
+}
+
+/* Ensure all text in comments panel has proper contrast */
+#webpage-comments-panel * {
+    color: inherit;
+}
+
+#webpage-comments-panel .comment-username,
+#webpage-comments-panel .comment-timestamp,
+#webpage-comments-panel .comment-text {
+    color: #000000 !important;
 } 
