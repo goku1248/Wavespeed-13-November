@@ -428,7 +428,7 @@ app.put('/api/comments/:commentId', async (req, res) => {
 app.delete('/api/comments/:commentId', async (req, res) => {
     try {
         const { userEmail } = req.query;
-        const commentId = req.params.commentId;
+        const { commentId } = req.params;
         console.log('Deleting comment:', { commentId, userEmail });
 
         if (!userEmail) {
@@ -442,7 +442,8 @@ app.delete('/api/comments/:commentId', async (req, res) => {
         if (comment.user.email !== userEmail) {
             return res.status(403).json({ error: 'Not authorized to delete this comment' });
         }
-        await comment.remove();
+
+        await Comment.findByIdAndDelete(commentId);
         console.log('Comment deleted successfully');
         res.json({ message: 'Comment deleted successfully' });
     } catch (error) {
@@ -507,7 +508,7 @@ app.delete('/api/comments/:commentId/replies/:replyId', async (req, res) => {
             return res.status(403).json({ error: 'Not authorized to delete this reply' });
         }
 
-        reply.remove();
+        comment.replies.pull(replyId);
         await comment.save();
         res.json({ message: 'Reply deleted successfully' });
     } catch (error) {
