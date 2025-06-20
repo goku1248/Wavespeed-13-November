@@ -262,9 +262,23 @@
 }
 
 .replies {
+    margin-left: 32px;
+    border-left: 3px solid #f1f3f4;
+    padding-left: 16px;
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+.replies .replies {
     margin-left: 24px;
-    border-left: 2px solid #f1f3f4;
-    padding-left: 8px;
+    border-left: 2px solid #e9ecef;
+    padding-left: 12px;
+}
+
+.replies .replies .replies {
+    margin-left: 20px;
+    border-left: 1px solid #dee2e6;
+    padding-left: 10px;
 }
 
 .reply-input-container {
