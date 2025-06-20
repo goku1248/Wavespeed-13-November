@@ -17,6 +17,9 @@ async function createCommentsPanel() {
                         <div class="dropdown-option" data-value="newest">Newest First</div>
                         <div class="dropdown-option" data-value="oldest">Oldest First</div>
                         <div class="dropdown-option" data-value="most-liked">Most Liked</div>
+                        <div class="dropdown-option" data-value="most-disliked">Most Disliked</div>
+                        <div class="dropdown-option" data-value="most-trusted">Most Trusted</div>
+                        <div class="dropdown-option" data-value="most-distrusted">Most Distrusted</div>
                     </div>
                 </div>
                 <button id="toggle-comments">−</button>
@@ -912,6 +915,12 @@ function sortComments(comments, sortBy) {
                 return new Date(a.timestamp) - new Date(b.timestamp);
             case 'most-liked':
                 return (b.likes || 0) - (a.likes || 0);
+            case 'most-disliked':
+                return (b.dislikes || 0) - (a.dislikes || 0);
+            case 'most-trusted':
+                return (b.trusts || 0) - (a.trusts || 0);
+            case 'most-distrusted':
+                return (b.distrusts || 0) - (a.distrusts || 0);
             case 'newest':
             default:
                 return new Date(b.timestamp) - new Date(a.timestamp);
