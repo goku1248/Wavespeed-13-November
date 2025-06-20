@@ -269,6 +269,16 @@
     margin-bottom: 8px;
 }
 
+/* Style for individual reply items */
+.reply {
+    margin-bottom: 12px;
+    padding: 8px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+}
+
+/* For future nested replies - replies to replies */
 .replies .replies {
     margin-left: 24px;
     border-left: 2px solid #e9ecef;
@@ -279,6 +289,13 @@
     margin-left: 20px;
     border-left: 1px solid #dee2e6;
     padding-left: 10px;
+}
+
+/* Additional indentation for deeper levels if needed */
+.replies .replies .replies .replies {
+    margin-left: 16px;
+    border-left: 1px solid #ced4da;
+    padding-left: 8px;
 }
 
 .reply-input-container {
