@@ -451,6 +451,70 @@ app.delete('/api/comments/:commentId', async (req, res) => {
     }
 });
 
+// Edit a reply
+app.put('/api/comments/:commentId/replies/:replyId', async (req, res) => {
+    try {
+        const { text, userEmail } = req.body;
+        const { commentId, replyId } = req.params;
+
+        if (!text || !userEmail) {
+            return res.status(400).json({ error: 'Text and userEmail are required' });
+        }
+
+        const comment = await Comment.findById(commentId);
+        if (!comment) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        const reply = comment.replies.id(replyId);
+        if (!reply) {
+            return res.status(404).json({ error: 'Reply not found' });
+        }
+
+        if (reply.user.email !== userEmail) {
+            return res.status(403).json({ error: 'Not authorized to edit this reply' });
+        }
+
+        reply.text = text;
+        await comment.save();
+        res.json(comment);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete a reply
+app.delete('/api/comments/:commentId/replies/:replyId', async (req, res) => {
+    try {
+        const { userEmail } = req.query;
+        const { commentId, replyId } = req.params;
+
+        if (!userEmail) {
+            return res.status(400).json({ error: 'userEmail is required' });
+        }
+
+        const comment = await Comment.findById(commentId);
+        if (!comment) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        const reply = comment.replies.id(replyId);
+        if (!reply) {
+            return res.status(404).json({ error: 'Reply not found' });
+        }
+
+        if (reply.user.email !== userEmail) {
+            return res.status(403).json({ error: 'Not authorized to delete this reply' });
+        }
+
+        reply.remove();
+        await comment.save();
+        res.json({ message: 'Reply deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Start server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
