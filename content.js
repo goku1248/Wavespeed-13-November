@@ -534,7 +534,7 @@ async function handleLikeDislike(commentId, action) {
         const result = await chrome.storage.local.get(['user']);
         const userEmail = result.user ? result.user.email : null;
         if (!userEmail) {
-            alert('Please sign in to like or dislike comments');
+            // Silently fail if user is not logged in, as they shouldn't be able to click.
             return;
         }
 
@@ -567,7 +567,7 @@ async function handleLikeDislike(commentId, action) {
         await loadComments(currentSortBy);
     } catch (error) {
         console.error('Failed to update like/dislike:', error);
-        alert('Failed to update reaction. Please try again.');
+        // The alert has been removed from here.
     }
 }
 
@@ -577,7 +577,7 @@ async function handleReplyReaction(commentId, replyId, action) {
         const result = await chrome.storage.local.get(['user']);
         const userEmail = result.user ? result.user.email : null;
         if (!userEmail) {
-            alert('Please sign in to react to replies');
+            // Silently fail if user is not logged in.
             return;
         }
 
@@ -610,7 +610,7 @@ async function handleReplyReaction(commentId, replyId, action) {
         await loadComments(currentSortBy);
     } catch (error) {
         console.error('Failed to update reply reaction:', error);
-        alert('Failed to update reply reaction. Please try again.');
+        // The alert has been removed from here.
     }
 }
 
