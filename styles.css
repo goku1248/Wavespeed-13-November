@@ -84,24 +84,37 @@
 
 .comment-user-info {
     flex: 1;
+    background: #f8f9fa;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border-left: 3px solid #007bff;
 }
 
 .comment-username {
-    font-weight: 500;
+    font-weight: 700 !important;
     color: #000000 !important;
     font-size: 14px;
+    display: block;
+    margin-bottom: 2px;
 }
 
 .comment-timestamp {
-    font-size: 12px;
-    color: #333333 !important;
+    font-size: 11px;
+    color: #666666 !important;
+    font-style: italic;
+    display: block;
 }
 
 .comment-text {
     color: #000000 !important;
     word-wrap: break-word;
     font-size: 14px;
-    line-height: 1.4;
+    line-height: 1.5;
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: #ffffff;
+    border-radius: 4px;
+    border: 1px solid #e9ecef;
 }
 
 .comment-input-container {
