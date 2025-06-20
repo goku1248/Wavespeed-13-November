@@ -173,7 +173,7 @@
     margin-top: 8px;
 }
 
-.like-btn, .dislike-btn {
+.like-btn, .dislike-btn, .trust-btn, .distrust-btn {
     background: #f1f3f4;
     border: none;
     border-radius: 4px;
@@ -186,7 +186,7 @@
     transition: background 0.2s;
 }
 
-.like-btn:disabled, .dislike-btn:disabled {
+.like-btn:disabled, .dislike-btn:disabled, .trust-btn:disabled, .distrust-btn:disabled {
     background: #e9ecef;
     color: #adb5bd;
     cursor: not-allowed;
@@ -197,6 +197,14 @@
 }
 
 .dislike-btn:not(:disabled):hover {
+    background: #f8d7da;
+}
+
+.trust-btn:not(:disabled):hover {
+    background: #d1e7dd;
+}
+
+.distrust-btn:not(:disabled):hover {
     background: #f8d7da;
 }
 
@@ -218,6 +226,26 @@
 
 .dislike-btn.disliked:hover {
     background-color: #da190b;
+}
+
+.trust-btn.trusted {
+    background-color: #28a745;
+    color: white;
+    border-color: #28a745;
+}
+
+.trust-btn.trusted:hover {
+    background-color: #218838;
+}
+
+.distrust-btn.distrusted {
+    background-color: #dc3545;
+    color: white;
+    border-color: #dc3545;
+}
+
+.distrust-btn.distrusted:hover {
+    background-color: #c82333;
 }
 
 .replies {

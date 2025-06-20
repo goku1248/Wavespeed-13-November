@@ -57,8 +57,12 @@ const commentSchema = new mongoose.Schema({
     timestamp: Date,
     likes: { type: Number, default: 0 },
     dislikes: { type: Number, default: 0 },
+    trusts: { type: Number, default: 0 },
+    distrusts: { type: Number, default: 0 },
     likedBy: [String],
     dislikedBy: [String],
+    trustedBy: [String],
+    distrustedBy: [String],
     replies: [{
         text: String,
         user: {
@@ -69,8 +73,12 @@ const commentSchema = new mongoose.Schema({
         timestamp: Date,
         likes: { type: Number, default: 0 },
         dislikes: { type: Number, default: 0 },
+        trusts: { type: Number, default: 0 },
+        distrusts: { type: Number, default: 0 },
         likedBy: [String],
-        dislikedBy: [String]
+        dislikedBy: [String],
+        trustedBy: [String],
+        distrustedBy: [String]
     }]
 });
 
@@ -237,6 +245,40 @@ app.put('/api/comments/:commentId/reaction', async (req, res) => {
                 }
                 console.log('User disliked the comment');
             }
+        } else if (type === 'trust') {
+            if (comment.trustedBy.includes(userEmail)) {
+                // User already trusted, so untrust
+                comment.trusts -= 1;
+                comment.trustedBy = comment.trustedBy.filter(email => email !== userEmail);
+                console.log('User untrusted the comment');
+            } else {
+                // User hasn't trusted, so trust
+                comment.trusts += 1;
+                comment.trustedBy.push(userEmail);
+                // Remove distrust if exists
+                if (comment.distrustedBy.includes(userEmail)) {
+                    comment.distrusts -= 1;
+                    comment.distrustedBy = comment.distrustedBy.filter(email => email !== userEmail);
+                }
+                console.log('User trusted the comment');
+            }
+        } else if (type === 'distrust') {
+            if (comment.distrustedBy.includes(userEmail)) {
+                // User already distrusted, so undisdistrust
+                comment.distrusts -= 1;
+                comment.distrustedBy = comment.distrustedBy.filter(email => email !== userEmail);
+                console.log('User undisdistrusted the comment');
+            } else {
+                // User hasn't distrusted, so distrust
+                comment.distrusts += 1;
+                comment.distrustedBy.push(userEmail);
+                // Remove trust if exists
+                if (comment.trustedBy.includes(userEmail)) {
+                    comment.trusts -= 1;
+                    comment.trustedBy = comment.trustedBy.filter(email => email !== userEmail);
+                }
+                console.log('User distrusted the comment');
+            }
         }
 
         await comment.save();
@@ -244,6 +286,112 @@ app.put('/api/comments/:commentId/reaction', async (req, res) => {
         res.json(comment);
     } catch (error) {
         console.error('Error updating reaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update like/dislike/trust/distrust status for replies
+app.put('/api/comments/:commentId/replies/:replyId/reaction', async (req, res) => {
+    try {
+        if (!isConnected) {
+            console.error('Database not connected');
+            return res.status(500).json({ error: 'Database connection error' });
+        }
+
+        const { type, userEmail } = req.body;
+        const commentId = req.params.commentId;
+        const replyId = req.params.replyId;
+        console.log('Updating reply reaction:', { commentId, replyId, type, userEmail });
+
+        if (!type || !userEmail) {
+            return res.status(400).json({ error: 'Type and userEmail are required' });
+        }
+
+        const comment = await Comment.findById(commentId);
+        if (!comment) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        const reply = comment.replies.id(replyId);
+        if (!reply) {
+            return res.status(404).json({ error: 'Reply not found' });
+        }
+
+        if (type === 'like') {
+            if (reply.likedBy.includes(userEmail)) {
+                // User already liked, so unlike
+                reply.likes -= 1;
+                reply.likedBy = reply.likedBy.filter(email => email !== userEmail);
+                console.log('User unliked the reply');
+            } else {
+                // User hasn't liked, so like
+                reply.likes += 1;
+                reply.likedBy.push(userEmail);
+                // Remove dislike if exists
+                if (reply.dislikedBy.includes(userEmail)) {
+                    reply.dislikes -= 1;
+                    reply.dislikedBy = reply.dislikedBy.filter(email => email !== userEmail);
+                }
+                console.log('User liked the reply');
+            }
+        } else if (type === 'dislike') {
+            if (reply.dislikedBy.includes(userEmail)) {
+                // User already disliked, so undislike
+                reply.dislikes -= 1;
+                reply.dislikedBy = reply.dislikedBy.filter(email => email !== userEmail);
+                console.log('User undisliked the reply');
+            } else {
+                // User hasn't disliked, so dislike
+                reply.dislikes += 1;
+                reply.dislikedBy.push(userEmail);
+                // Remove like if exists
+                if (reply.likedBy.includes(userEmail)) {
+                    reply.likes -= 1;
+                    reply.likedBy = reply.likedBy.filter(email => email !== userEmail);
+                }
+                console.log('User disliked the reply');
+            }
+        } else if (type === 'trust') {
+            if (reply.trustedBy.includes(userEmail)) {
+                // User already trusted, so untrust
+                reply.trusts -= 1;
+                reply.trustedBy = reply.trustedBy.filter(email => email !== userEmail);
+                console.log('User untrusted the reply');
+            } else {
+                // User hasn't trusted, so trust
+                reply.trusts += 1;
+                reply.trustedBy.push(userEmail);
+                // Remove distrust if exists
+                if (reply.distrustedBy.includes(userEmail)) {
+                    reply.distrusts -= 1;
+                    reply.distrustedBy = reply.distrustedBy.filter(email => email !== userEmail);
+                }
+                console.log('User trusted the reply');
+            }
+        } else if (type === 'distrust') {
+            if (reply.distrustedBy.includes(userEmail)) {
+                // User already distrusted, so undisdistrust
+                reply.distrusts -= 1;
+                reply.distrustedBy = reply.distrustedBy.filter(email => email !== userEmail);
+                console.log('User undisdistrusted the reply');
+            } else {
+                // User hasn't distrusted, so distrust
+                reply.distrusts += 1;
+                reply.distrustedBy.push(userEmail);
+                // Remove trust if exists
+                if (reply.trustedBy.includes(userEmail)) {
+                    reply.trusts -= 1;
+                    reply.trustedBy = reply.trustedBy.filter(email => email !== userEmail);
+                }
+                console.log('User distrusted the reply');
+            }
+        }
+
+        await comment.save();
+        console.log('Reply reaction updated successfully');
+        res.json(comment);
+    } catch (error) {
+        console.error('Error updating reply reaction:', error);
         res.status(500).json({ error: error.message });
     }
 });

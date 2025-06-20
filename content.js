@@ -382,6 +382,19 @@ async function loadComments(sortBy = currentSortBy) {
                 await handleLikeDislike(commentId, 'dislike');
             });
         });
+        // Add event listeners for trust/distrust
+        document.querySelectorAll('.trust-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const commentId = this.getAttribute('data-comment-id');
+                await handleLikeDislike(commentId, 'trust');
+            });
+        });
+        document.querySelectorAll('.distrust-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const commentId = this.getAttribute('data-comment-id');
+                await handleLikeDislike(commentId, 'distrust');
+            });
+        });
         // Add event listeners for reply
         document.querySelectorAll('.reply-btn').forEach(btn => {
             btn.addEventListener('click', function() {
@@ -403,6 +416,36 @@ async function loadComments(sortBy = currentSortBy) {
                 if (confirm('Are you sure you want to delete this comment and all its replies?')) {
                     await deleteComment(commentId);
                 }
+            });
+        });
+        // Add event listeners for reply trust/distrust
+        document.querySelectorAll('.reply .trust-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const replyId = this.getAttribute('data-reply-id');
+                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                await handleReplyReaction(commentId, replyId, 'trust');
+            });
+        });
+        document.querySelectorAll('.reply .distrust-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const replyId = this.getAttribute('data-reply-id');
+                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                await handleReplyReaction(commentId, replyId, 'distrust');
+            });
+        });
+        // Add event listeners for reply like/dislike
+        document.querySelectorAll('.reply .like-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const replyId = this.getAttribute('data-reply-id');
+                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                await handleReplyReaction(commentId, replyId, 'like');
+            });
+        });
+        document.querySelectorAll('.reply .dislike-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const replyId = this.getAttribute('data-reply-id');
+                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                await handleReplyReaction(commentId, replyId, 'dislike');
             });
         });
     } catch (error) {
@@ -506,6 +549,49 @@ async function handleLikeDislike(commentId, action) {
     } catch (error) {
         console.error('Failed to update like/dislike:', error);
         alert('Failed to update reaction. Please try again.');
+    }
+}
+
+// Handle reply reactions (like/dislike/trust/distrust)
+async function handleReplyReaction(commentId, replyId, action) {
+    try {
+        const result = await chrome.storage.local.get(['user']);
+        const userEmail = result.user ? result.user.email : null;
+        if (!userEmail) {
+            alert('Please sign in to react to replies');
+            return;
+        }
+
+        console.log(`Handling ${action} for reply:`, replyId, 'in comment:', commentId);
+
+        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}/reaction`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                type: action,
+                userEmail
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Failed to update reply reaction:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText
+            });
+            throw new Error(`Failed to update reply reaction: ${errorText}`);
+        }
+
+        const updatedComment = await response.json();
+        console.log('Reply reaction updated successfully:', updatedComment);
+
+        await loadComments(currentSortBy);
+    } catch (error) {
+        console.error('Failed to update reply reaction:', error);
+        alert('Failed to update reply reaction. Please try again.');
     }
 }
 
@@ -649,6 +735,8 @@ function renderComments(comments, userEmail, currentUrl) {
     return comments.map(comment => {
         const isLiked = comment.likedBy && comment.likedBy.includes(userEmail);
         const isDisliked = comment.dislikedBy && comment.dislikedBy.includes(userEmail);
+        const isTrusted = comment.trustedBy && comment.trustedBy.includes(userEmail);
+        const isDistrusted = comment.distrustedBy && comment.distrustedBy.includes(userEmail);
         
         return `
             <div class="comment" data-comment-id="${comment._id}">
@@ -667,6 +755,12 @@ function renderComments(comments, userEmail, currentUrl) {
                     <button class="dislike-btn ${isDisliked ? 'disliked' : ''}" data-comment-id="${comment._id}">
                         👎 ${comment.dislikes || 0}
                     </button>
+                    <button class="trust-btn ${isTrusted ? 'trusted' : ''}" data-comment-id="${comment._id}">
+                        ✅ ${comment.trusts || 0}
+                    </button>
+                    <button class="distrust-btn ${isDistrusted ? 'distrusted' : ''}" data-comment-id="${comment._id}">
+                        ❌ ${comment.distrusts || 0}
+                    </button>
                     <button class="reply-btn" data-comment-id="${comment._id}">Reply</button>
                     ${comment.user.email === userEmail ? `
                         <button class="edit-btn" data-comment-id="${comment._id}">Edit</button>
@@ -680,6 +774,8 @@ function renderComments(comments, userEmail, currentUrl) {
                         ${comment.replies.map(reply => {
                             const isReplyLiked = reply.likedBy && reply.likedBy.includes(userEmail);
                             const isReplyDisliked = reply.dislikedBy && reply.dislikedBy.includes(userEmail);
+                            const isReplyTrusted = reply.trustedBy && reply.trustedBy.includes(userEmail);
+                            const isReplyDistrusted = reply.distrustedBy && reply.distrustedBy.includes(userEmail);
                             return `
                                 <div class="reply" data-reply-id="${reply._id}">
                                     <div class="reply-header">
@@ -696,6 +792,12 @@ function renderComments(comments, userEmail, currentUrl) {
                                         </button>
                                         <button class="dislike-btn ${isReplyDisliked ? 'disliked' : ''}" data-reply-id="${reply._id}">
                                             👎 ${reply.dislikes || 0}
+                                        </button>
+                                        <button class="trust-btn ${isReplyTrusted ? 'trusted' : ''}" data-reply-id="${reply._id}">
+                                            ✅ ${reply.trusts || 0}
+                                        </button>
+                                        <button class="distrust-btn ${isReplyDistrusted ? 'distrusted' : ''}" data-reply-id="${reply._id}">
+                                            ❌ ${reply.distrusts || 0}
                                         </button>
                                     </div>
                                 </div>
