@@ -75,7 +75,7 @@
     margin-bottom: 8px;
 }
 
-.comment-avatar {
+.comment-avatar, .reply-avatar {
     width: 24px;
     height: 24px;
     border-radius: 50%;
