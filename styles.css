@@ -82,7 +82,7 @@
     margin-right: 8px;
 }
 
-.comment-user-info {
+.comment-info {
     flex: 1;
     background: #f8f9fa;
     padding: 4px 8px;
@@ -93,14 +93,14 @@
     align-items: center;
 }
 
-.comment-username {
+.comment-author {
     font-weight: 700 !important;
     color: #000000 !important;
     font-size: 14px;
     margin: 0;
 }
 
-.comment-timestamp {
+.comment-time {
     font-size: 11px;
     color: #666666 !important;
     font-style: italic;
@@ -522,7 +522,7 @@
     color: #000000 !important;
 }
 
-.reply-user-info {
+.reply-info {
     background: #f8f9fa;
     padding: 4px 8px;
     border-radius: 4px;
@@ -533,14 +533,14 @@
     align-items: center;
 }
 
-.reply-username {
+.reply-author {
     font-weight: 700 !important;
     color: #000000 !important;
     font-size: 14px;
     margin: 0;
 }
 
-.reply-timestamp {
+.reply-time {
     font-size: 11px;
     color: #666666 !important;
     font-style: italic;
