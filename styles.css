@@ -264,7 +264,7 @@
 }
 
 .replies {
-    margin-left: 32px;
+    margin-left: 32px; /* First level replies */
     border-left: 3px solid #f1f3f4;
     padding-left: 16px;
     margin-top: 8px;
@@ -280,24 +280,73 @@
     border: 1px solid #e9ecef;
 }
 
-/* For future nested replies - replies to replies */
-.replies .replies {
-    margin-left: 24px;
+/* Nested replies (replies to replies) */
+.nested-replies {
+    margin-left: 24px; /* Second level indentation */
     border-left: 2px solid #e9ecef;
     padding-left: 12px;
+    margin-top: 8px;
+    margin-bottom: 8px;
 }
 
-.replies .replies .replies {
-    margin-left: 20px;
-    border-left: 1px solid #dee2e6;
-    padding-left: 10px;
+/* Style for individual nested reply items */
+.nested-reply {
+    margin-bottom: 10px;
+    padding: 6px;
+    background: #ffffff;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
 }
 
-/* Additional indentation for deeper levels if needed */
-.replies .replies .replies .replies {
-    margin-left: 16px;
-    border-left: 1px solid #ced4da;
-    padding-left: 8px;
+/* Nested reply info styling */
+.nested-reply-info {
+    background: #f8f9fa;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border-left: 3px solid #007bff;
+    margin-bottom: 2px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.nested-reply-author {
+    font-weight: 700 !important;
+    color: #000000 !important;
+    font-size: 13px;
+    margin: 0;
+}
+
+.nested-reply-time {
+    font-size: 10px;
+    color: #666666 !important;
+    font-style: italic;
+    margin: 0;
+}
+
+.nested-reply-text {
+    color: #000000 !important;
+    word-wrap: break-word;
+    font-size: 13px;
+    line-height: 1.4;
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: #ffffff;
+    border-radius: 3px;
+    border: 1px solid #e9ecef;
+}
+
+.nested-reply-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.nested-reply-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    margin-right: 6px;
 }
 
 .reply-input-container {

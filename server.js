@@ -78,7 +78,24 @@ const commentSchema = new mongoose.Schema({
         likedBy: [String],
         dislikedBy: [String],
         trustedBy: [String],
-        distrustedBy: [String]
+        distrustedBy: [String],
+        nestedReplies: [{
+            text: String,
+            user: {
+                name: String,
+                email: String,
+                picture: String
+            },
+            timestamp: Date,
+            likes: { type: Number, default: 0 },
+            dislikes: { type: Number, default: 0 },
+            trusts: { type: Number, default: 0 },
+            distrusts: { type: Number, default: 0 },
+            likedBy: [String],
+            dislikedBy: [String],
+            trustedBy: [String],
+            distrustedBy: [String]
+        }]
     }]
 });
 
@@ -186,6 +203,42 @@ app.post('/api/comments/:commentId/replies', async (req, res) => {
         res.json(comment);
     } catch (error) {
         console.error('Error adding reply:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Add a nested reply (reply to a reply)
+app.post('/api/comments/:commentId/replies/:replyId/nested-replies', async (req, res) => {
+    try {
+        const { text, user } = req.body;
+        const commentId = req.params.commentId;
+        const replyId = req.params.replyId;
+        console.log('Adding nested reply:', { commentId, replyId, text, user });
+
+        if (!text || !user) {
+            return res.status(400).json({ error: 'Text and user are required' });
+        }
+
+        const comment = await Comment.findById(commentId);
+        if (!comment) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        const reply = comment.replies.id(replyId);
+        if (!reply) {
+            return res.status(404).json({ error: 'Reply not found' });
+        }
+
+        reply.nestedReplies.push({
+            text,
+            user,
+            timestamp: new Date()
+        });
+        await comment.save();
+        console.log('Nested reply added successfully');
+        res.json(comment);
+    } catch (error) {
+        console.error('Error adding nested reply:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -319,79 +372,144 @@ app.put('/api/comments/:commentId/replies/:replyId/reaction', async (req, res) =
 
         if (type === 'like') {
             if (reply.likedBy.includes(userEmail)) {
-                // User already liked, so unlike
                 reply.likes -= 1;
                 reply.likedBy = reply.likedBy.filter(email => email !== userEmail);
-                console.log('User unliked the reply');
             } else {
-                // User hasn't liked, so like
                 reply.likes += 1;
                 reply.likedBy.push(userEmail);
-                // Remove dislike if exists
                 if (reply.dislikedBy.includes(userEmail)) {
                     reply.dislikes -= 1;
                     reply.dislikedBy = reply.dislikedBy.filter(email => email !== userEmail);
                 }
-                console.log('User liked the reply');
             }
         } else if (type === 'dislike') {
             if (reply.dislikedBy.includes(userEmail)) {
-                // User already disliked, so undislike
                 reply.dislikes -= 1;
                 reply.dislikedBy = reply.dislikedBy.filter(email => email !== userEmail);
-                console.log('User undisliked the reply');
             } else {
-                // User hasn't disliked, so dislike
                 reply.dislikes += 1;
                 reply.dislikedBy.push(userEmail);
-                // Remove like if exists
                 if (reply.likedBy.includes(userEmail)) {
                     reply.likes -= 1;
                     reply.likedBy = reply.likedBy.filter(email => email !== userEmail);
                 }
-                console.log('User disliked the reply');
             }
         } else if (type === 'trust') {
             if (reply.trustedBy.includes(userEmail)) {
-                // User already trusted, so untrust
                 reply.trusts -= 1;
                 reply.trustedBy = reply.trustedBy.filter(email => email !== userEmail);
-                console.log('User untrusted the reply');
             } else {
-                // User hasn't trusted, so trust
                 reply.trusts += 1;
                 reply.trustedBy.push(userEmail);
-                // Remove distrust if exists
                 if (reply.distrustedBy.includes(userEmail)) {
                     reply.distrusts -= 1;
                     reply.distrustedBy = reply.distrustedBy.filter(email => email !== userEmail);
                 }
-                console.log('User trusted the reply');
             }
         } else if (type === 'distrust') {
             if (reply.distrustedBy.includes(userEmail)) {
-                // User already distrusted, so undisdistrust
                 reply.distrusts -= 1;
                 reply.distrustedBy = reply.distrustedBy.filter(email => email !== userEmail);
-                console.log('User undisdistrusted the reply');
             } else {
-                // User hasn't distrusted, so distrust
                 reply.distrusts += 1;
                 reply.distrustedBy.push(userEmail);
-                // Remove trust if exists
                 if (reply.trustedBy.includes(userEmail)) {
                     reply.trusts -= 1;
                     reply.trustedBy = reply.trustedBy.filter(email => email !== userEmail);
                 }
-                console.log('User distrusted the reply');
             }
         }
 
         await comment.save();
-        console.log('Reply reaction updated successfully');
         res.json(comment);
     } catch (error) {
         console.error('Error updating reply reaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update like/dislike/trust/distrust status for nested replies
+app.put('/api/comments/:commentId/replies/:replyId/nested-replies/:nestedReplyId/reaction', async (req, res) => {
+    try {
+        const { type, userEmail } = req.body;
+        const commentId = req.params.commentId;
+        const replyId = req.params.replyId;
+        const nestedReplyId = req.params.nestedReplyId;
+        console.log('Updating nested reply reaction:', { commentId, replyId, nestedReplyId, type, userEmail });
+
+        if (!type || !userEmail) {
+            return res.status(400).json({ error: 'Type and userEmail are required' });
+        }
+
+        const comment = await Comment.findById(commentId);
+        if (!comment) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        const reply = comment.replies.id(replyId);
+        if (!reply) {
+            return res.status(404).json({ error: 'Reply not found' });
+        }
+
+        const nestedReply = reply.nestedReplies.id(nestedReplyId);
+        if (!nestedReply) {
+            return res.status(404).json({ error: 'Nested reply not found' });
+        }
+
+        if (type === 'like') {
+            if (nestedReply.likedBy.includes(userEmail)) {
+                nestedReply.likes -= 1;
+                nestedReply.likedBy = nestedReply.likedBy.filter(email => email !== userEmail);
+            } else {
+                nestedReply.likes += 1;
+                nestedReply.likedBy.push(userEmail);
+                if (nestedReply.dislikedBy.includes(userEmail)) {
+                    nestedReply.dislikes -= 1;
+                    nestedReply.dislikedBy = nestedReply.dislikedBy.filter(email => email !== userEmail);
+                }
+            }
+        } else if (type === 'dislike') {
+            if (nestedReply.dislikedBy.includes(userEmail)) {
+                nestedReply.dislikes -= 1;
+                nestedReply.dislikedBy = nestedReply.dislikedBy.filter(email => email !== userEmail);
+            } else {
+                nestedReply.dislikes += 1;
+                nestedReply.dislikedBy.push(userEmail);
+                if (nestedReply.likedBy.includes(userEmail)) {
+                    nestedReply.likes -= 1;
+                    nestedReply.likedBy = nestedReply.likedBy.filter(email => email !== userEmail);
+                }
+            }
+        } else if (type === 'trust') {
+            if (nestedReply.trustedBy.includes(userEmail)) {
+                nestedReply.trusts -= 1;
+                nestedReply.trustedBy = nestedReply.trustedBy.filter(email => email !== userEmail);
+            } else {
+                nestedReply.trusts += 1;
+                nestedReply.trustedBy.push(userEmail);
+                if (nestedReply.distrustedBy.includes(userEmail)) {
+                    nestedReply.distrusts -= 1;
+                    nestedReply.distrustedBy = nestedReply.distrustedBy.filter(email => email !== userEmail);
+                }
+            }
+        } else if (type === 'distrust') {
+            if (nestedReply.distrustedBy.includes(userEmail)) {
+                nestedReply.distrusts -= 1;
+                nestedReply.distrustedBy = nestedReply.distrustedBy.filter(email => email !== userEmail);
+            } else {
+                nestedReply.distrusts += 1;
+                nestedReply.distrustedBy.push(userEmail);
+                if (nestedReply.trustedBy.includes(userEmail)) {
+                    nestedReply.trusts -= 1;
+                    nestedReply.trustedBy = nestedReply.trustedBy.filter(email => email !== userEmail);
+                }
+            }
+        }
+
+        await comment.save();
+        res.json(comment);
+    } catch (error) {
+        console.error('Error updating nested reply reaction:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -512,6 +630,90 @@ app.delete('/api/comments/:commentId/replies/:replyId', async (req, res) => {
         await comment.save();
         res.json({ message: 'Reply deleted successfully' });
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Edit a nested reply
+app.put('/api/comments/:commentId/replies/:replyId/nested-replies/:nestedReplyId', async (req, res) => {
+    try {
+        const { text, userEmail } = req.body;
+        const commentId = req.params.commentId;
+        const replyId = req.params.replyId;
+        const nestedReplyId = req.params.nestedReplyId;
+        console.log('Editing nested reply:', { commentId, replyId, nestedReplyId, text, userEmail });
+
+        if (!text || !userEmail) {
+            return res.status(400).json({ error: 'Text and userEmail are required' });
+        }
+
+        const comment = await Comment.findById(commentId);
+        if (!comment) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        const reply = comment.replies.id(replyId);
+        if (!reply) {
+            return res.status(404).json({ error: 'Reply not found' });
+        }
+
+        const nestedReply = reply.nestedReplies.id(nestedReplyId);
+        if (!nestedReply) {
+            return res.status(404).json({ error: 'Nested reply not found' });
+        }
+
+        if (nestedReply.user.email !== userEmail) {
+            return res.status(403).json({ error: 'You can only edit your own nested replies' });
+        }
+
+        nestedReply.text = text;
+        await comment.save();
+        console.log('Nested reply edited successfully');
+        res.json(comment);
+    } catch (error) {
+        console.error('Error editing nested reply:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete a nested reply
+app.delete('/api/comments/:commentId/replies/:replyId/nested-replies/:nestedReplyId', async (req, res) => {
+    try {
+        const { userEmail } = req.query;
+        const commentId = req.params.commentId;
+        const replyId = req.params.replyId;
+        const nestedReplyId = req.params.nestedReplyId;
+        console.log('Deleting nested reply:', { commentId, replyId, nestedReplyId, userEmail });
+
+        if (!userEmail) {
+            return res.status(400).json({ error: 'userEmail is required' });
+        }
+
+        const comment = await Comment.findById(commentId);
+        if (!comment) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        const reply = comment.replies.id(replyId);
+        if (!reply) {
+            return res.status(404).json({ error: 'Reply not found' });
+        }
+
+        const nestedReply = reply.nestedReplies.id(nestedReplyId);
+        if (!nestedReply) {
+            return res.status(404).json({ error: 'Nested reply not found' });
+        }
+
+        if (nestedReply.user.email !== userEmail) {
+            return res.status(403).json({ error: 'You can only delete your own nested replies' });
+        }
+
+        reply.nestedReplies.pull(nestedReplyId);
+        await comment.save();
+        console.log('Nested reply deleted successfully');
+        res.json(comment);
+    } catch (error) {
+        console.error('Error deleting nested reply:', error);
         res.status(500).json({ error: error.message });
     }
 });

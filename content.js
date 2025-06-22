@@ -400,7 +400,14 @@ async function loadComments(sortBy = currentSortBy) {
         document.querySelectorAll('.comment > .comment-actions .reply-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const commentId = this.getAttribute('data-comment-id');
-                showReplyInput(commentId);
+                const replyId = this.getAttribute('data-reply-id');
+                if (replyId) {
+                    // This is a reply to a reply (nested reply)
+                    showNestedReplyInput(commentId, replyId);
+                } else {
+                    // This is a reply to a comment
+                    showReplyInput(commentId);
+                }
             });
         });
         document.querySelectorAll('.comment > .comment-actions .edit-btn').forEach(btn => {
@@ -450,7 +457,14 @@ async function loadComments(sortBy = currentSortBy) {
         document.querySelectorAll('.reply .reply-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const commentId = this.getAttribute('data-comment-id');
-                showReplyInput(commentId);
+                const replyId = this.getAttribute('data-reply-id');
+                if (replyId) {
+                    // This is a reply to a reply (nested reply)
+                    showNestedReplyInput(commentId, replyId);
+                } else {
+                    // This is a reply to a comment
+                    showReplyInput(commentId);
+                }
             });
         });
         document.querySelectorAll('.reply .edit-reply-btn').forEach(btn => {
@@ -465,6 +479,56 @@ async function loadComments(sortBy = currentSortBy) {
                 const commentId = this.closest('.comment').getAttribute('data-comment-id');
                 if (confirm('Are you sure you want to delete this reply?')) {
                     await deleteReply(commentId, replyId);
+                }
+            });
+        });
+
+        // Event listeners for nested replies
+        document.querySelectorAll('.nested-reply .like-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const nestedReplyId = this.getAttribute('data-nested-reply-id');
+                const replyId = this.closest('.reply').getAttribute('data-reply-id');
+                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                await handleNestedReplyReaction(commentId, replyId, nestedReplyId, 'like');
+            });
+        });
+        document.querySelectorAll('.nested-reply .dislike-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const nestedReplyId = this.getAttribute('data-nested-reply-id');
+                const replyId = this.closest('.reply').getAttribute('data-reply-id');
+                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                await handleNestedReplyReaction(commentId, replyId, nestedReplyId, 'dislike');
+            });
+        });
+        document.querySelectorAll('.nested-reply .trust-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const nestedReplyId = this.getAttribute('data-nested-reply-id');
+                const replyId = this.closest('.reply').getAttribute('data-reply-id');
+                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                await handleNestedReplyReaction(commentId, replyId, nestedReplyId, 'trust');
+            });
+        });
+        document.querySelectorAll('.nested-reply .distrust-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const nestedReplyId = this.getAttribute('data-nested-reply-id');
+                const replyId = this.closest('.reply').getAttribute('data-reply-id');
+                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                await handleNestedReplyReaction(commentId, replyId, nestedReplyId, 'distrust');
+            });
+        });
+        document.querySelectorAll('.nested-reply .edit-nested-reply-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const nestedReplyId = this.getAttribute('data-nested-reply-id');
+                showEditNestedReplyInput(nestedReplyId);
+            });
+        });
+        document.querySelectorAll('.nested-reply .delete-nested-reply-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const nestedReplyId = this.getAttribute('data-nested-reply-id');
+                const replyId = this.closest('.reply').getAttribute('data-reply-id');
+                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                if (confirm('Are you sure you want to delete this nested reply?')) {
+                    await deleteNestedReply(commentId, replyId, nestedReplyId);
                 }
             });
         });
@@ -865,46 +929,100 @@ function renderComments(comments, userEmail, currentUrl) {
                 <div class="reply-input-container" id="reply-input-${comment._id}" style="display:none;"></div>
                 ${comment.replies && comment.replies.length > 0 ? `
                     <div class="replies">
-                        ${comment.replies.map(reply => {
-                            const isReplyLiked = reply.likedBy && reply.likedBy.includes(userEmail);
-                            const isReplyDisliked = reply.dislikedBy && reply.dislikedBy.includes(userEmail);
-                            const isReplyTrusted = reply.trustedBy && reply.trustedBy.includes(userEmail);
-                            const isReplyDistrusted = reply.distrustedBy && reply.distrustedBy.includes(userEmail);
-                            return `
-                                <div class="reply" data-reply-id="${reply._id}">
-                                    <div class="reply-header">
-                                        <img src="${reply.user.picture}" alt="Profile" class="reply-avatar">
-                                        <div class="reply-info">
-                                            <div class="reply-author">${reply.user.name}</div>
-                                            <div class="reply-time">${new Date(reply.timestamp).toLocaleString()}</div>
-                                        </div>
-                                    </div>
-                                    <div class="reply-text">${reply.text}</div>
-                                    <div class="reply-actions">
-                                        <button class="like-btn ${isReplyLiked ? 'liked' : ''}" data-reply-id="${reply._id}">
-                                            👍 ${reply.likes || 0}
-                                        </button>
-                                        <button class="dislike-btn ${isReplyDisliked ? 'disliked' : ''}" data-reply-id="${reply._id}">
-                                            👎 ${reply.dislikes || 0}
-                                        </button>
-                                        <button class="trust-btn ${isReplyTrusted ? 'trusted' : ''}" data-reply-id="${reply._id}">
-                                            ✅ ${reply.trusts || 0}
-                                        </button>
-                                        <button class="distrust-btn ${isReplyDistrusted ? 'distrusted' : ''}" data-reply-id="${reply._id}">
-                                            ❌ ${reply.distrusts || 0}
-                                        </button>
-                                        <button class="reply-btn" data-comment-id="${comment._id}">Reply</button>
-                                        ${reply.user.email === userEmail ? `
-                                            <button class="edit-reply-btn" data-reply-id="${reply._id}">Edit</button>
-                                            <button class="delete-reply-btn" data-reply-id="${reply._id}">Delete</button>
-                                        ` : ''}
-                                    </div>
-                                    <div class="edit-reply-input-container" id="edit-reply-input-${reply._id}" style="display:none;"></div>
-                                </div>
-                            `;
-                        }).join('')}
+                        ${renderReplies(comment.replies, comment._id, userEmail)}
                     </div>
                 ` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+// Function to render replies with nested replies support
+function renderReplies(replies, commentId, userEmail, level = 1) {
+    return replies.map(reply => {
+        const isReplyLiked = reply.likedBy && reply.likedBy.includes(userEmail);
+        const isReplyDisliked = reply.dislikedBy && reply.dislikedBy.includes(userEmail);
+        const isReplyTrusted = reply.trustedBy && reply.trustedBy.includes(userEmail);
+        const isReplyDistrusted = reply.distrustedBy && reply.distrustedBy.includes(userEmail);
+        
+        return `
+            <div class="reply" data-reply-id="${reply._id}">
+                <div class="reply-header">
+                    <img src="${reply.user.picture}" alt="Profile" class="reply-avatar">
+                    <div class="reply-info">
+                        <div class="reply-author">${reply.user.name}</div>
+                        <div class="reply-time">${new Date(reply.timestamp).toLocaleString()}</div>
+                    </div>
+                </div>
+                <div class="reply-text">${reply.text}</div>
+                <div class="reply-actions">
+                    <button class="like-btn ${isReplyLiked ? 'liked' : ''}" data-reply-id="${reply._id}">
+                        👍 ${reply.likes || 0}
+                    </button>
+                    <button class="dislike-btn ${isReplyDisliked ? 'disliked' : ''}" data-reply-id="${reply._id}">
+                        👎 ${reply.dislikes || 0}
+                    </button>
+                    <button class="trust-btn ${isReplyTrusted ? 'trusted' : ''}" data-reply-id="${reply._id}">
+                        ✅ ${reply.trusts || 0}
+                    </button>
+                    <button class="distrust-btn ${isReplyDistrusted ? 'distrusted' : ''}" data-reply-id="${reply._id}">
+                        ❌ ${reply.distrusts || 0}
+                    </button>
+                    <button class="reply-btn" data-comment-id="${commentId}" data-reply-id="${reply._id}">Reply</button>
+                    ${reply.user.email === userEmail ? `
+                        <button class="edit-reply-btn" data-reply-id="${reply._id}">Edit</button>
+                        <button class="delete-reply-btn" data-reply-id="${reply._id}">Delete</button>
+                    ` : ''}
+                </div>
+                <div class="edit-reply-input-container" id="edit-reply-input-${reply._id}" style="display:none;"></div>
+                <div class="nested-reply-input-container" id="nested-reply-input-${reply._id}" style="display:none;"></div>
+                ${reply.nestedReplies && reply.nestedReplies.length > 0 ? `
+                    <div class="nested-replies">
+                        ${renderNestedReplies(reply.nestedReplies, commentId, reply._id, userEmail, level + 1)}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+// Function to render nested replies
+function renderNestedReplies(nestedReplies, commentId, parentReplyId, userEmail, level = 2) {
+    return nestedReplies.map(nestedReply => {
+        const isNestedReplyLiked = nestedReply.likedBy && nestedReply.likedBy.includes(userEmail);
+        const isNestedReplyDisliked = nestedReply.dislikedBy && nestedReply.dislikedBy.includes(userEmail);
+        const isNestedReplyTrusted = nestedReply.trustedBy && nestedReply.trustedBy.includes(userEmail);
+        const isNestedReplyDistrusted = nestedReply.distrustedBy && nestedReply.distrustedBy.includes(userEmail);
+        
+        return `
+            <div class="nested-reply" data-nested-reply-id="${nestedReply._id}">
+                <div class="nested-reply-header">
+                    <img src="${nestedReply.user.picture}" alt="Profile" class="nested-reply-avatar">
+                    <div class="nested-reply-info">
+                        <div class="nested-reply-author">${nestedReply.user.name}</div>
+                        <div class="nested-reply-time">${new Date(nestedReply.timestamp).toLocaleString()}</div>
+                    </div>
+                </div>
+                <div class="nested-reply-text">${nestedReply.text}</div>
+                <div class="nested-reply-actions">
+                    <button class="like-btn ${isNestedReplyLiked ? 'liked' : ''}" data-nested-reply-id="${nestedReply._id}">
+                        👍 ${nestedReply.likes || 0}
+                    </button>
+                    <button class="dislike-btn ${isNestedReplyDisliked ? 'disliked' : ''}" data-nested-reply-id="${nestedReply._id}">
+                        👎 ${nestedReply.dislikes || 0}
+                    </button>
+                    <button class="trust-btn ${isNestedReplyTrusted ? 'trusted' : ''}" data-nested-reply-id="${nestedReply._id}">
+                        ✅ ${nestedReply.trusts || 0}
+                    </button>
+                    <button class="distrust-btn ${isNestedReplyDistrusted ? 'distrusted' : ''}" data-nested-reply-id="${nestedReply._id}">
+                        ❌ ${nestedReply.distrusts || 0}
+                    </button>
+                    ${nestedReply.user.email === userEmail ? `
+                        <button class="edit-nested-reply-btn" data-nested-reply-id="${nestedReply._id}">Edit</button>
+                        <button class="delete-nested-reply-btn" data-nested-reply-id="${nestedReply._id}">Delete</button>
+                    ` : ''}
+                </div>
+                <div class="edit-nested-reply-input-container" id="edit-nested-reply-input-${nestedReply._id}" style="display:none;"></div>
             </div>
         `;
     }).join('');
@@ -1023,6 +1141,210 @@ function sortComments(comments, sortBy) {
                 return new Date(b.timestamp) - new Date(a.timestamp);
         }
     });
+}
+
+// Handle nested reply reactions (like/dislike/trust/distrust)
+async function handleNestedReplyReaction(commentId, replyId, nestedReplyId, action) {
+    try {
+        const result = await chrome.storage.local.get(['user']);
+        const userEmail = result.user ? result.user.email : null;
+        if (!userEmail) {
+            return;
+        }
+
+        console.log(`Handling ${action} for nested reply:`, nestedReplyId, 'in reply:', replyId, 'in comment:', commentId);
+
+        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}/nested-replies/${nestedReplyId}/reaction`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                type: action,
+                userEmail
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Failed to update nested reply reaction:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText
+            });
+            throw new Error(`Failed to update nested reply reaction: ${errorText}`);
+        }
+
+        const updatedComment = await response.json();
+        console.log('Nested reply reaction updated successfully:', updatedComment);
+
+        await loadComments(currentSortBy);
+    } catch (error) {
+        console.error('Failed to update nested reply reaction:', error);
+    }
+}
+
+// Submit a nested reply
+async function submitNestedReply(commentId, replyId, nestedReplyText) {
+    const text = nestedReplyText.trim();
+    if (!text) return;
+    try {
+        const result = await chrome.storage.local.get(['isAuthenticated', 'user']);
+        if (!result.isAuthenticated) {
+            alert('Please sign in to reply to comments');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}/nested-replies`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                text,
+                user: result.user
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Failed to submit nested reply:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText
+            });
+            throw new Error(`Failed to submit nested reply: ${errorText}`);
+        }
+
+        const updatedComment = await response.json();
+        console.log('Nested reply submitted successfully:', updatedComment);
+
+        await loadComments(currentSortBy);
+    } catch (error) {
+        console.error('Failed to submit nested reply:', error);
+        alert('Failed to submit nested reply. Please try again.');
+    }
+}
+
+// Show nested reply input
+function showNestedReplyInput(commentId, replyId) {
+    const container = document.getElementById(`nested-reply-input-${replyId}`);
+    if (container) {
+        container.innerHTML = `
+            <textarea class="nested-reply-textarea" placeholder="Write a nested reply..." rows="3"></textarea>
+            <button class="submit-nested-reply-btn" style="margin-top:4px;">Reply</button>
+        `;
+        container.style.display = 'block';
+        
+        const submitBtn = container.querySelector('.submit-nested-reply-btn');
+        submitBtn.addEventListener('click', async () => {
+            const nestedReplyText = container.querySelector('.nested-reply-textarea').value;
+            await submitNestedReply(commentId, replyId, nestedReplyText);
+        });
+    }
+}
+
+// Show edit nested reply input
+function showEditNestedReplyInput(nestedReplyId) {
+    const container = document.getElementById(`edit-nested-reply-input-${nestedReplyId}`);
+    const textDiv = document.querySelector(`.nested-reply[data-nested-reply-id="${nestedReplyId}"] .nested-reply-text`);
+    const currentText = textDiv.textContent;
+    
+    if (container) {
+        container.innerHTML = `
+            <textarea class="edit-nested-reply-textarea" rows="3">${currentText}</textarea>
+            <button class="save-edit-nested-reply-btn" style="margin-top:4px;">Save</button>
+            <button class="cancel-edit-nested-reply-btn" style="margin-top:4px;">Cancel</button>
+        `;
+        container.style.display = 'block';
+        
+        const saveBtn = container.querySelector('.save-edit-nested-reply-btn');
+        const cancelBtn = container.querySelector('.cancel-edit-nested-reply-btn');
+        
+        saveBtn.addEventListener('click', async () => {
+            const newText = container.querySelector('.edit-nested-reply-textarea').value;
+            const replyId = container.closest('.reply').getAttribute('data-reply-id');
+            const commentId = container.closest('.comment').getAttribute('data-comment-id');
+            await saveEditNestedReply(commentId, replyId, nestedReplyId, newText);
+        });
+        
+        cancelBtn.addEventListener('click', () => {
+            container.style.display = 'none';
+        });
+    }
+}
+
+// Save edit for nested reply
+async function saveEditNestedReply(commentId, replyId, nestedReplyId, newText) {
+    try {
+        const result = await chrome.storage.local.get(['isAuthenticated', 'user']);
+        if (!result.isAuthenticated) {
+            alert('Please sign in to edit nested replies');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}/nested-replies/${nestedReplyId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                text: newText,
+                userEmail: result.user.email
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Failed to edit nested reply:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText
+            });
+            throw new Error(`Failed to edit nested reply: ${errorText}`);
+        }
+
+        const updatedComment = await response.json();
+        console.log('Nested reply edited successfully:', updatedComment);
+
+        await loadComments(currentSortBy);
+    } catch (error) {
+        console.error('Failed to edit nested reply:', error);
+        alert('Failed to edit nested reply. Please try again.');
+    }
+}
+
+// Delete nested reply
+async function deleteNestedReply(commentId, replyId, nestedReplyId) {
+    try {
+        const result = await chrome.storage.local.get(['isAuthenticated', 'user']);
+        if (!result.isAuthenticated) {
+            alert('Please sign in to delete nested replies');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}/nested-replies/${nestedReplyId}?userEmail=${encodeURIComponent(result.user.email)}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Failed to delete nested reply:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText
+            });
+            throw new Error(`Failed to delete nested reply: ${errorText}`);
+        }
+
+        const updatedComment = await response.json();
+        console.log('Nested reply deleted successfully:', updatedComment);
+
+        await loadComments(currentSortBy);
+    } catch (error) {
+        console.error('Failed to delete nested reply:', error);
+        alert('Failed to delete nested reply. Please try again.');
+    }
 }
 
 // Initialize the panel
