@@ -787,6 +787,9 @@ async function loadComments(sortBy = currentSortBy) {
         
         // Add replies toggle listeners after all other event listeners
         addRepliesToggleListeners();
+        
+        // Re-initialize emoji pickers for newly loaded content
+        initializeEmojiPicker();
     } catch (error) {
         console.error('Failed to load comments:', error);
         commentsList.innerHTML = `
@@ -849,6 +852,8 @@ async function submitComment() {
         
         commentInput.value = '';
         await loadComments(currentSortBy);
+        // Re-initialize emoji pickers after submitting comment
+        initializeEmojiPicker();
     } catch (error) {
         console.error('Failed to submit comment:', error);
         alert('Failed to submit comment. Please try again. Error: ' + error.message);
@@ -1132,6 +1137,9 @@ function showReplyInput(commentId, containerId, apiParentId) {
             textarea.value = preservedText;
             container.removeAttribute('data-preserved-text');
         }
+        
+        // Initialize emoji picker for this reply input
+        initializeEmojiPicker();
     } else {
         console.error('Container not found for ID:', `reply-input-${containerId}`);
         console.log('Available containers:', Array.from(document.querySelectorAll('.reply-input-container')).map(c => c.id));
@@ -1186,6 +1194,9 @@ function showEditInput(commentId) {
         cancelBtn.addEventListener('click', function() {
             container.style.display = 'none';
         });
+        
+        // Initialize emoji picker for this edit input
+        initializeEmojiPicker();
     }
 }
 
@@ -1299,6 +1310,9 @@ function showEditReplyInput(replyId) {
         cancelBtn.addEventListener('click', () => {
             container.style.display = 'none';
         });
+        
+        // Initialize emoji picker for this edit reply input
+        initializeEmojiPicker();
     }
 }
 
@@ -1625,9 +1639,15 @@ const EMOJI_CATEGORIES = {
 
 function renderEmojiGrid(category, gridElem, onEmojiClick) {
     console.log('renderEmojiGrid called with category:', category, 'gridElem:', gridElem);
+    if (!gridElem) {
+        console.error('Grid element not found');
+        return;
+    }
+    
     gridElem.innerHTML = '';
-    const emojis = EMOJI_CATEGORIES[category];
+    const emojis = EMOJI_CATEGORIES[category] || EMOJI_CATEGORIES.smileys;
     console.log('Emojis to render:', emojis.length);
+    
     emojis.forEach(emoji => {
         const btn = document.createElement('button');
         btn.className = 'emoji-item';
@@ -1638,40 +1658,59 @@ function renderEmojiGrid(category, gridElem, onEmojiClick) {
         btn.style.border = 'none';
         btn.style.background = 'none';
         btn.style.cursor = 'pointer';
-        btn.addEventListener('click', () => onEmojiClick(emoji));
+        btn.addEventListener('click', () => {
+            console.log('Emoji clicked:', emoji);
+            onEmojiClick(emoji);
+        });
         gridElem.appendChild(btn);
     });
     console.log('Emoji grid rendered with', gridElem.children.length, 'items');
 }
 
 function initializeEmojiPicker() {
-    // Main comment input
+    console.log('Initializing emoji picker...');
+    
+    // Main comment input emoji picker
     const emojiBtn = document.getElementById('comment-emoji-btn');
     const emojiPicker = document.getElementById('comment-emoji-picker');
     const emojiGrid = document.getElementById('comment-emoji-grid');
     const textarea = document.getElementById('comment-input');
-    let currentCategory = 'smileys';
     
-    console.log('Emoji picker elements:', { emojiBtn, emojiPicker, emojiGrid, textarea });
+    console.log('Main emoji picker elements:', { emojiBtn, emojiPicker, emojiGrid, textarea });
     
     if (emojiBtn && emojiPicker && emojiGrid && textarea) {
+        let currentCategory = 'smileys';
+        
+        // Initialize the main emoji picker
         emojiBtn.addEventListener('click', (e) => {
-            console.log('Emoji button clicked!');
+            console.log('Main emoji button clicked!');
             e.stopPropagation();
-            const newDisplay = emojiPicker.style.display === 'block' ? 'none' : 'block';
-            console.log('Setting emoji picker display to:', newDisplay);
-            emojiPicker.style.display = newDisplay;
-            renderEmojiGrid(currentCategory, emojiGrid, (emoji) => {
-                insertAtCursor(textarea, emoji);
-                emojiPicker.style.display = 'none';
-                textarea.focus();
-            });
+            const isVisible = emojiPicker.style.display === 'block';
+            emojiPicker.style.display = isVisible ? 'none' : 'block';
+            
+            if (!isVisible) {
+                renderEmojiGrid(currentCategory, emojiGrid, (emoji) => {
+                    insertAtCursor(textarea, emoji);
+                    emojiPicker.style.display = 'none';
+                    textarea.focus();
+                });
+            }
         });
+        
+        // Handle emoji picker clicks
         emojiPicker.addEventListener('click', e => e.stopPropagation());
-        document.addEventListener('click', () => emojiPicker.style.display = 'none');
-        // Category switching
+        
+        // Close main emoji picker when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!emojiPicker.contains(e.target) && !emojiBtn.contains(e.target)) {
+                emojiPicker.style.display = 'none';
+            }
+        });
+        
+        // Category switching for main emoji picker
         emojiPicker.querySelectorAll('.emoji-category').forEach(btn => {
-            btn.addEventListener('click', function() {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
                 emojiPicker.querySelectorAll('.emoji-category').forEach(b => b.classList.remove('active'));
                 this.classList.add('active');
                 currentCategory = this.getAttribute('data-category');
@@ -1682,6 +1721,8 @@ function initializeEmojiPicker() {
                 });
             });
         });
+        
+        // Initialize main emoji grid
         renderEmojiGrid(currentCategory, emojiGrid, (emoji) => {
             insertAtCursor(textarea, emoji);
             emojiPicker.style.display = 'none';
@@ -1689,145 +1730,179 @@ function initializeEmojiPicker() {
         });
     }
 
-    // Delegate for reply and edit emoji pickers
+    // Global event delegation for all other emoji pickers
     document.body.addEventListener('click', function(e) {
-        // Reply input
+        // Reply emoji button
         if (e.target.classList.contains('reply-emoji-btn')) {
             console.log('Reply emoji button clicked!');
+            e.stopPropagation();
             const container = e.target.closest('.reply-input-container');
             const picker = container.querySelector('.reply-emoji-picker');
             const grid = container.querySelector('.reply-emoji-grid');
             const textarea = container.querySelector('.reply-textarea');
-            let currentCategory = 'smileys';
-            picker.style.display = picker.style.display === 'block' ? 'none' : 'block';
-            renderEmojiGrid(currentCategory, grid, (emoji) => {
-                insertAtCursor(textarea, emoji);
-                picker.style.display = 'none';
-                textarea.focus();
-            });
-            picker.querySelectorAll('.emoji-category').forEach(btn => {
-                btn.onclick = function() {
-                    picker.querySelectorAll('.emoji-category').forEach(b => b.classList.remove('active'));
-                    this.classList.add('active');
-                    currentCategory = this.getAttribute('data-category');
+            
+            if (picker && grid && textarea) {
+                let currentCategory = 'smileys';
+                const isVisible = picker.style.display === 'block';
+                picker.style.display = isVisible ? 'none' : 'block';
+                
+                if (!isVisible) {
                     renderEmojiGrid(currentCategory, grid, (emoji) => {
                         insertAtCursor(textarea, emoji);
                         picker.style.display = 'none';
                         textarea.focus();
                     });
+                }
+                
+                // Set up category switching for this picker
+                picker.querySelectorAll('.emoji-category').forEach(btn => {
+                    btn.onclick = function(e) {
+                        e.stopPropagation();
+                        picker.querySelectorAll('.emoji-category').forEach(b => b.classList.remove('active'));
+                        this.classList.add('active');
+                        currentCategory = this.getAttribute('data-category');
+                        renderEmojiGrid(currentCategory, grid, (emoji) => {
+                            insertAtCursor(textarea, emoji);
+                            picker.style.display = 'none';
+                            textarea.focus();
+                        });
+                    };
+                });
+                
+                // Close picker when clicking outside
+                const closePicker = (event) => {
+                    if (!picker.contains(event.target) && !e.target.contains(event.target)) {
+                        picker.style.display = 'none';
+                        document.removeEventListener('click', closePicker);
+                    }
                 };
-            });
-            picker.onclick = e => e.stopPropagation();
-            // Use a more reliable approach for closing the picker
-            const closePicker = (event) => {
-                // Don't close if clicking inside the picker
-                if (picker.contains(event.target)) {
-                    return;
-                }
-                if (picker.style.display === 'block') {
-                    picker.style.display = 'none';
-                    document.removeEventListener('click', closePicker);
-                }
-            };
-            // Add a small delay to avoid immediate closure
-            setTimeout(() => {
-                document.addEventListener('click', closePicker);
-            }, 10);
+                setTimeout(() => {
+                    document.addEventListener('click', closePicker);
+                }, 10);
+            }
         }
-        // Edit comment input
+        
+        // Edit comment emoji button
         if (e.target.classList.contains('edit-emoji-btn')) {
+            console.log('Edit comment emoji button clicked!');
+            e.stopPropagation();
             const container = e.target.closest('.edit-input-container');
             const picker = container.querySelector('.edit-emoji-picker');
             const grid = container.querySelector('.edit-emoji-grid');
             const textarea = container.querySelector('.edit-textarea');
-            let currentCategory = 'smileys';
-            picker.style.display = picker.style.display === 'block' ? 'none' : 'block';
-            renderEmojiGrid(currentCategory, grid, (emoji) => {
-                insertAtCursor(textarea, emoji);
-                picker.style.display = 'none';
-                textarea.focus();
-            });
-            picker.querySelectorAll('.emoji-category').forEach(btn => {
-                btn.onclick = function() {
-                    picker.querySelectorAll('.emoji-category').forEach(b => b.classList.remove('active'));
-                    this.classList.add('active');
-                    currentCategory = this.getAttribute('data-category');
+            
+            if (picker && grid && textarea) {
+                let currentCategory = 'smileys';
+                const isVisible = picker.style.display === 'block';
+                picker.style.display = isVisible ? 'none' : 'block';
+                
+                if (!isVisible) {
                     renderEmojiGrid(currentCategory, grid, (emoji) => {
                         insertAtCursor(textarea, emoji);
                         picker.style.display = 'none';
                         textarea.focus();
                     });
+                }
+                
+                // Set up category switching for this picker
+                picker.querySelectorAll('.emoji-category').forEach(btn => {
+                    btn.onclick = function(e) {
+                        e.stopPropagation();
+                        picker.querySelectorAll('.emoji-category').forEach(b => b.classList.remove('active'));
+                        this.classList.add('active');
+                        currentCategory = this.getAttribute('data-category');
+                        renderEmojiGrid(currentCategory, grid, (emoji) => {
+                            insertAtCursor(textarea, emoji);
+                            picker.style.display = 'none';
+                            textarea.focus();
+                        });
+                    };
+                });
+                
+                // Close picker when clicking outside
+                const closePicker = (event) => {
+                    if (!picker.contains(event.target) && !e.target.contains(event.target)) {
+                        picker.style.display = 'none';
+                        document.removeEventListener('click', closePicker);
+                    }
                 };
-            });
-            picker.onclick = e => e.stopPropagation();
-            // Use a more reliable approach for closing the picker
-            const closePicker = (event) => {
-                // Don't close if clicking inside the picker
-                if (picker.contains(event.target)) {
-                    return;
-                }
-                if (picker.style.display === 'block') {
-                    picker.style.display = 'none';
-                    document.removeEventListener('click', closePicker);
-                }
-            };
-            // Add a small delay to avoid immediate closure
-            setTimeout(() => {
-                document.addEventListener('click', closePicker);
-            }, 10);
+                setTimeout(() => {
+                    document.addEventListener('click', closePicker);
+                }, 10);
+            }
         }
-        // Edit reply input
+        
+        // Edit reply emoji button
         if (e.target.classList.contains('edit-reply-emoji-btn')) {
+            console.log('Edit reply emoji button clicked!');
+            e.stopPropagation();
             const container = e.target.closest('.edit-reply-input-container');
             const picker = container.querySelector('.edit-reply-emoji-picker');
             const grid = container.querySelector('.edit-reply-emoji-grid');
             const textarea = container.querySelector('.edit-textarea');
-            let currentCategory = 'smileys';
-            picker.style.display = picker.style.display === 'block' ? 'none' : 'block';
-            renderEmojiGrid(currentCategory, grid, (emoji) => {
-                insertAtCursor(textarea, emoji);
-                picker.style.display = 'none';
-                textarea.focus();
-            });
-            picker.querySelectorAll('.emoji-category').forEach(btn => {
-                btn.onclick = function() {
-                    picker.querySelectorAll('.emoji-category').forEach(b => b.classList.remove('active'));
-                    this.classList.add('active');
-                    currentCategory = this.getAttribute('data-category');
+            
+            if (picker && grid && textarea) {
+                let currentCategory = 'smileys';
+                const isVisible = picker.style.display === 'block';
+                picker.style.display = isVisible ? 'none' : 'block';
+                
+                if (!isVisible) {
                     renderEmojiGrid(currentCategory, grid, (emoji) => {
                         insertAtCursor(textarea, emoji);
                         picker.style.display = 'none';
                         textarea.focus();
                     });
+                }
+                
+                // Set up category switching for this picker
+                picker.querySelectorAll('.emoji-category').forEach(btn => {
+                    btn.onclick = function(e) {
+                        e.stopPropagation();
+                        picker.querySelectorAll('.emoji-category').forEach(b => b.classList.remove('active'));
+                        this.classList.add('active');
+                        currentCategory = this.getAttribute('data-category');
+                        renderEmojiGrid(currentCategory, grid, (emoji) => {
+                            insertAtCursor(textarea, emoji);
+                            picker.style.display = 'none';
+                            textarea.focus();
+                        });
+                    };
+                });
+                
+                // Close picker when clicking outside
+                const closePicker = (event) => {
+                    if (!picker.contains(event.target) && !e.target.contains(event.target)) {
+                        picker.style.display = 'none';
+                        document.removeEventListener('click', closePicker);
+                    }
                 };
-            });
-            picker.onclick = e => e.stopPropagation();
-            // Use a more reliable approach for closing the picker
-            const closePicker = (event) => {
-                // Don't close if clicking inside the picker
-                if (picker.contains(event.target)) {
-                    return;
-                }
-                if (picker.style.display === 'block') {
-                    picker.style.display = 'none';
-                    document.removeEventListener('click', closePicker);
-                }
-            };
-            // Add a small delay to avoid immediate closure
-            setTimeout(() => {
-                document.addEventListener('click', closePicker);
-            }, 10);
+                setTimeout(() => {
+                    document.addEventListener('click', closePicker);
+                }, 10);
+            }
         }
     });
+    
+    console.log('Emoji picker initialization complete');
 }
 
 function insertAtCursor(textarea, text) {
+    if (!textarea) {
+        console.error('Textarea not found for emoji insertion');
+        return;
+    }
+    
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const before = textarea.value.substring(0, start);
     const after = textarea.value.substring(end);
     textarea.value = before + text + after;
     textarea.selectionStart = textarea.selectionEnd = start + text.length;
+    
+    // Trigger input event to ensure any listeners are notified
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    
+    console.log('Emoji inserted at cursor:', text);
 }
 // === END Emoji Picker Support ===
 
