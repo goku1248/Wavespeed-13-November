@@ -701,17 +701,22 @@
 }
 
 .emoji-picker {
-    position: absolute;
-    top: 100%;
-    left: 0;
+    position: fixed;
     background: white;
     border: 1px solid #ddd;
     border-radius: 16px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-    z-index: 2147483646;
+    z-index: 2147483647;
     width: 280px;
     max-height: 300px;
     overflow: hidden;
+    display: none;
+    margin-top: 4px;
+}
+
+/* Ensure emoji picker is visible when displayed */
+.emoji-picker[style*="display: block"] {
+    display: block !important;
 }
 
 .emoji-categories {

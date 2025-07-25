@@ -1686,7 +1686,28 @@ function initializeEmojiPicker() {
             console.log('Main emoji button clicked!');
             e.stopPropagation();
             const isVisible = emojiPicker.style.display === 'block';
-            emojiPicker.style.display = isVisible ? 'none' : 'block';
+            console.log('Current emoji picker display:', emojiPicker.style.display);
+            console.log('Is visible:', isVisible);
+            
+            if (isVisible) {
+                emojiPicker.style.display = 'none';
+            } else {
+                // Position the emoji picker relative to the button
+                const buttonRect = emojiBtn.getBoundingClientRect();
+                emojiPicker.style.left = buttonRect.left + 'px';
+                emojiPicker.style.top = (buttonRect.bottom + 4) + 'px';
+                emojiPicker.style.display = 'block';
+                
+                console.log('Button position:', buttonRect);
+                console.log('Emoji picker position:', {
+                    left: emojiPicker.style.left,
+                    top: emojiPicker.style.top
+                });
+            }
+            
+            console.log('New emoji picker display:', emojiPicker.style.display);
+            console.log('Emoji picker computed style:', window.getComputedStyle(emojiPicker).display);
+            console.log('Emoji picker position:', emojiPicker.getBoundingClientRect());
             
             if (!isVisible) {
                 renderEmojiGrid(currentCategory, emojiGrid, (emoji) => {
@@ -1744,7 +1765,16 @@ function initializeEmojiPicker() {
             if (picker && grid && textarea) {
                 let currentCategory = 'smileys';
                 const isVisible = picker.style.display === 'block';
-                picker.style.display = isVisible ? 'none' : 'block';
+                
+                if (isVisible) {
+                    picker.style.display = 'none';
+                } else {
+                    // Position the emoji picker relative to the button
+                    const buttonRect = e.target.getBoundingClientRect();
+                    picker.style.left = buttonRect.left + 'px';
+                    picker.style.top = (buttonRect.bottom + 4) + 'px';
+                    picker.style.display = 'block';
+                }
                 
                 if (!isVisible) {
                     renderEmojiGrid(currentCategory, grid, (emoji) => {
@@ -1794,7 +1824,16 @@ function initializeEmojiPicker() {
             if (picker && grid && textarea) {
                 let currentCategory = 'smileys';
                 const isVisible = picker.style.display === 'block';
-                picker.style.display = isVisible ? 'none' : 'block';
+                
+                if (isVisible) {
+                    picker.style.display = 'none';
+                } else {
+                    // Position the emoji picker relative to the button
+                    const buttonRect = e.target.getBoundingClientRect();
+                    picker.style.left = buttonRect.left + 'px';
+                    picker.style.top = (buttonRect.bottom + 4) + 'px';
+                    picker.style.display = 'block';
+                }
                 
                 if (!isVisible) {
                     renderEmojiGrid(currentCategory, grid, (emoji) => {
@@ -1844,7 +1883,16 @@ function initializeEmojiPicker() {
             if (picker && grid && textarea) {
                 let currentCategory = 'smileys';
                 const isVisible = picker.style.display === 'block';
-                picker.style.display = isVisible ? 'none' : 'block';
+                
+                if (isVisible) {
+                    picker.style.display = 'none';
+                } else {
+                    // Position the emoji picker relative to the button
+                    const buttonRect = e.target.getBoundingClientRect();
+                    picker.style.left = buttonRect.left + 'px';
+                    picker.style.top = (buttonRect.bottom + 4) + 'px';
+                    picker.style.display = 'block';
+                }
                 
                 if (!isVisible) {
                     renderEmojiGrid(currentCategory, grid, (emoji) => {
