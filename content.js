@@ -22,7 +22,9 @@ async function createCommentsPanel() {
                         <div class="dropdown-option" data-value="most-distrusted">Most Distrusted</div>
                     </div>
                 </div>
-                <button id="toggle-comments">−</button>
+                <button id="minimize-comments" title="Minimize" style="font-size:28px; background:none; border:none; cursor:pointer;">-</button>
+                <button id="maximize-comments" title="Maximize" style="font-size:24px; background:none; border:none; cursor:pointer; margin-left:4px;">⬜</button>
+                <button id="close-comments" title="Close" style="font-size:20px; background:none; border:none; cursor:pointer; margin-left:4px; color:#ff4444;">✕</button>
             </div>
         </div>
         <div class="comments-content">
@@ -31,7 +33,32 @@ async function createCommentsPanel() {
             </div>
             <div id="comments-list"></div>
             <div class="comment-input-container">
-                <textarea id="comment-input" placeholder="Add a comment..."></textarea>
+                <div class="input-wrapper">
+                    <textarea id="comment-input" placeholder="Add a comment..."></textarea>
+                    <button class="emoji-btn" id="comment-emoji-btn">😊</button>
+                    <button class="gif-btn" id="comment-gif-btn">🎬</button>
+                </div>
+                <div class="emoji-picker" id="comment-emoji-picker" style="display: none;">
+                    <div class="emoji-categories">
+                        <button class="emoji-category active" data-category="smileys">😊</button>
+                        <button class="emoji-category" data-category="animals">🐶</button>
+                        <button class="emoji-category" data-category="food">🍕</button>
+                        <button class="emoji-category" data-category="activities">⚽</button>
+                        <button class="emoji-category" data-category="travel">🚗</button>
+                        <button class="emoji-category" data-category="objects">💡</button>
+                        <button class="emoji-category" data-category="symbols">❤️</button>
+                        <button class="emoji-category" data-category="flags">🏁</button>
+                    </div>
+                    <div class="emoji-grid" id="comment-emoji-grid"></div>
+                </div>
+                <div class="gif-picker" id="comment-gif-picker" style="display: none;">
+                    <div class="gif-search-container">
+                        <input type="text" class="gif-search-input" placeholder="Search GIFs..." id="comment-gif-search">
+                        <button class="gif-search-btn" id="comment-gif-search-btn">🔍</button>
+                    </div>
+                    <div class="gif-grid" id="comment-gif-grid"></div>
+                    <div class="gif-loading" id="comment-gif-loading" style="display: none;">Loading...</div>
+                </div>
                 <button id="submit-comment">Post</button>
             </div>
         </div>
@@ -57,9 +84,20 @@ async function createCommentsPanel() {
     addPanelDragger(panel);
 
     // Add event listeners
-    document.getElementById('toggle-comments').addEventListener('click', () => {
-        toggleComments();
-        savePanelState(panel);
+    document.getElementById('minimize-comments').addEventListener('click', () => {
+        panel.style.display = 'none';
+        const floatingIcon = document.getElementById('comments-floating-icon');
+        floatingIcon.style.display = 'flex';
+    });
+    document.getElementById('close-comments').addEventListener('click', () => {
+        // Remove the panel and floating icon completely
+        panel.remove();
+        const floatingIcon = document.getElementById('comments-floating-icon');
+        if (floatingIcon) {
+            floatingIcon.remove();
+        }
+        // Clear any stored panel state
+        chrome.storage.local.remove(['panelState']);
     });
     document.getElementById('submit-comment').addEventListener('click', submitComment);
     
@@ -120,6 +158,137 @@ async function createCommentsPanel() {
     // Load existing comments
     await loadComments();
     await checkAuthStatus();
+    
+    // Initialize emoji picker functionality
+    initializeEmojiPicker();
+    
+    // Initialize GIF picker functionality
+    initializeGifPicker();
+
+    // Add floating icon for minimized state
+    const floatingIcon = document.createElement('div');
+    floatingIcon.id = 'comments-floating-icon';
+    floatingIcon.title = 'Show Comments';
+    floatingIcon.innerHTML = '💬';
+    floatingIcon.style.display = 'none';
+    document.body.appendChild(floatingIcon);
+
+    // Add minimize/restore logic after panel is added to DOM
+    setTimeout(() => {
+        const panel = document.getElementById('webpage-comments-panel');
+        const minimizeBtn = document.getElementById('minimize-comments');
+        const maximizeBtn = document.getElementById('maximize-comments');
+        const closeBtn = document.getElementById('close-comments');
+        const floatingIcon = document.getElementById('comments-floating-icon');
+        
+        // Store state in panel data attributes for persistence
+        if (!panel.dataset.isMaximized) {
+            panel.dataset.isMaximized = 'false';
+        }
+        
+        if (minimizeBtn && panel && floatingIcon) {
+            minimizeBtn.addEventListener('click', () => {
+                panel.style.display = 'none';
+                floatingIcon.style.display = 'flex';
+            });
+            floatingIcon.addEventListener('click', () => {
+                panel.style.display = 'flex';
+                floatingIcon.style.display = 'none';
+            });
+        }
+        
+        if (maximizeBtn && panel) {
+            maximizeBtn.addEventListener('click', () => {
+                const isMaximized = panel.dataset.isMaximized === 'true';
+                
+                if (!isMaximized) {
+                    // Save current state before maximizing
+                    const currentRect = panel.getBoundingClientRect();
+                    panel.dataset.prevStyle = JSON.stringify({
+                        top: panel.style.top,
+                        left: panel.style.left,
+                        right: panel.style.right,
+                        bottom: panel.style.bottom,
+                        width: panel.style.width,
+                        height: panel.style.height,
+                        borderRadius: panel.style.borderRadius,
+                        boxShadow: panel.style.boxShadow,
+                        position: panel.style.position,
+                        zIndex: panel.style.zIndex,
+                        // Store computed dimensions as fallback
+                        computedWidth: currentRect.width + 'px',
+                        computedHeight: currentRect.height + 'px',
+                        computedLeft: currentRect.left + 'px',
+                        computedTop: currentRect.top + 'px'
+                    });
+                    
+                    // Maximize
+                    panel.style.position = 'fixed';
+                    panel.style.top = '0';
+                    panel.style.left = '0';
+                    panel.style.right = '0';
+                    panel.style.bottom = '0';
+                    panel.style.width = '100vw';
+                    panel.style.height = '100vh';
+                    panel.style.borderRadius = '0';
+                    panel.style.boxShadow = 'none';
+                    panel.style.zIndex = '2147483647';
+                    maximizeBtn.textContent = '🗗';
+                    panel.dataset.isMaximized = 'true';
+                } else {
+                    // Restore previous state
+                    try {
+                        const prevStyle = JSON.parse(panel.dataset.prevStyle || '{}');
+                        
+                        // Restore position and dimensions
+                        panel.style.position = prevStyle.position || 'fixed';
+                        panel.style.top = prevStyle.top || prevStyle.computedTop || '20px';
+                        panel.style.left = prevStyle.left || prevStyle.computedLeft || '';
+                        panel.style.right = prevStyle.right || '';
+                        panel.style.bottom = prevStyle.bottom || '';
+                        panel.style.width = prevStyle.width || prevStyle.computedWidth || '300px';
+                        panel.style.height = prevStyle.height || prevStyle.computedHeight || '500px';
+                        panel.style.borderRadius = prevStyle.borderRadius || '8px';
+                        panel.style.boxShadow = prevStyle.boxShadow || '0 2px 10px rgba(0, 0, 0, 0.1)';
+                        panel.style.zIndex = prevStyle.zIndex || '2147483647';
+                        
+                        maximizeBtn.textContent = '⬜';
+                        panel.dataset.isMaximized = 'false';
+                        
+                        // Ensure panel is within viewport after restore
+                        ensurePanelInViewport(panel);
+                        savePanelState(panel);
+                    } catch (error) {
+                        console.error('Error restoring panel state:', error);
+                        // Fallback to default state
+                        panel.style.position = 'fixed';
+                        panel.style.top = '20px';
+                        panel.style.right = '20px';
+                        panel.style.width = '300px';
+                        panel.style.height = '500px';
+                        panel.style.borderRadius = '8px';
+                        panel.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
+                        panel.style.zIndex = '2147483647';
+                        maximizeBtn.textContent = '⬜';
+                        panel.dataset.isMaximized = 'false';
+                    }
+                }
+            });
+        }
+        
+        if (closeBtn && panel) {
+            closeBtn.addEventListener('click', () => {
+                // Remove the panel and floating icon completely
+                panel.remove();
+                const floatingIcon = document.getElementById('comments-floating-icon');
+                if (floatingIcon) {
+                    floatingIcon.remove();
+                }
+                // Clear any stored panel state
+                chrome.storage.local.remove(['panelState']);
+            });
+        }
+    }, 100);
 }
 
 function addPanelResizer(panel) {
@@ -313,10 +482,13 @@ function createComment({text, user, timestamp}) {
     };
 }
 
-const API_BASE_URL = 'https://wavespeed-final-for-render-com.onrender.com/api';
+const API_BASE_URL = 'http://localhost:3001/api';
 
 // Add this at the top of the file with other global variables
 let currentSortBy = 'newest';
+
+// Track expanded replies state
+let expandedReplies = new Set();
 
 // Load and display comments
 async function loadComments(sortBy = currentSortBy) {
@@ -355,6 +527,7 @@ async function loadComments(sortBy = currentSortBy) {
         
         let comments = await response.json();
         console.log('Received comments:', comments);
+        console.log('Raw comments data structure:', JSON.stringify(comments, null, 2));
         
         if (!Array.isArray(comments)) {
             console.error('Invalid comments data received:', comments);
@@ -371,6 +544,73 @@ async function loadComments(sortBy = currentSortBy) {
 
         commentsList.innerHTML = renderComments(comments, userEmail, currentUrl);
         console.log('Comments rendered successfully');
+        addRepliesToggleListeners();
+        
+        // Restore expanded replies state after rendering
+        restoreExpandedRepliesState();
+
+        // Debug: Check all reply buttons after rendering
+        const allReplyButtons = document.querySelectorAll('.reply-btn');
+        console.log('Found', allReplyButtons.length, 'reply buttons');
+        allReplyButtons.forEach((btn, index) => {
+            console.log(`Reply button ${index}:`, {
+                html: btn.outerHTML,
+                'data-comment-id': btn.getAttribute('data-comment-id'),
+                'data-parent-reply-id': btn.getAttribute('data-parent-reply-id'),
+                hasParentReplyId: btn.hasAttribute('data-parent-reply-id')
+            });
+        });
+
+        // A single, unified event listener for all reply buttons
+        document.querySelectorAll('.reply-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                console.log('=== REPLY BUTTON CLICKED ===');
+                console.log('Button element:', this);
+                console.log('Button HTML:', this.outerHTML);
+                console.log('Button attributes:', {
+                    'data-comment-id': this.getAttribute('data-comment-id'),
+                    'data-parent-reply-id': this.getAttribute('data-parent-reply-id'),
+                    'class': this.className
+                });
+                
+                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                const parentReplyIdAttr = this.getAttribute('data-parent-reply-id');
+                
+                console.log('Raw attributes:', {
+                    commentId,
+                    parentReplyIdAttr,
+                    'data-comment-id': this.getAttribute('data-comment-id'),
+                    'data-parent-reply-id': this.getAttribute('data-parent-reply-id'),
+                    'has-data-parent-reply-id': this.hasAttribute('data-parent-reply-id')
+                });
+                
+                // Check if this is a reply to a comment (top-level) or to another reply (nested)
+                const isNestedReply = parentReplyIdAttr !== null && 
+                                    parentReplyIdAttr !== undefined && 
+                                    parentReplyIdAttr !== 'undefined' && 
+                                    parentReplyIdAttr !== '' &&
+                                    this.hasAttribute('data-parent-reply-id');
+                
+                const parentReplyId = isNestedReply ? parentReplyIdAttr : 'root';
+                const containerId = isNestedReply ? parentReplyIdAttr : commentId;
+                
+                console.log('Reply button clicked. Data:', { 
+                    commentId, 
+                    parentReplyId, 
+                    containerId, 
+                    isNestedReply,
+                    parentReplyIdAttr 
+                });
+                console.log('Button attributes:', {
+                    'data-comment-id': this.getAttribute('data-comment-id'),
+                    'data-parent-reply-id': parentReplyIdAttr,
+                    'has-data-parent-reply-id': isNestedReply,
+                    'all-attributes': Array.from(this.attributes).map(attr => `${attr.name}="${attr.value}"`).join(', ')
+                });
+
+                showReplyInput(commentId, containerId, parentReplyId);
+            });
+        });
 
         // Add event listeners for comment actions
         document.querySelectorAll('.comment > .comment-actions .like-btn').forEach(btn => {
@@ -397,19 +637,6 @@ async function loadComments(sortBy = currentSortBy) {
                 await handleLikeDislike(commentId, 'distrust');
             });
         });
-        document.querySelectorAll('.comment > .comment-actions .reply-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const commentId = this.getAttribute('data-comment-id');
-                const replyId = this.getAttribute('data-reply-id');
-                if (replyId) {
-                    // This is a reply to a reply (nested reply)
-                    showNestedReplyInput(commentId, replyId);
-                } else {
-                    // This is a reply to a comment
-                    showReplyInput(commentId);
-                }
-            });
-        });
         document.querySelectorAll('.comment > .comment-actions .edit-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const commentId = this.getAttribute('data-comment-id');
@@ -425,113 +652,141 @@ async function loadComments(sortBy = currentSortBy) {
             });
         });
 
-        // Add event listeners for reply actions
-        document.querySelectorAll('.reply .like-btn').forEach(btn => {
+        // Add event listeners for reply actions (handles all reply levels)
+        const replyLikeButtons = document.querySelectorAll('.reply .like-btn');
+        const replyDislikeButtons = document.querySelectorAll('.reply .dislike-btn');
+        const replyTrustButtons = document.querySelectorAll('.reply .trust-btn');
+        const replyDistrustButtons = document.querySelectorAll('.reply .distrust-btn');
+        const replyEditButtons = document.querySelectorAll('.reply .edit-reply-btn');
+        const replyDeleteButtons = document.querySelectorAll('.reply .delete-reply-btn');
+        const replyButtons = document.querySelectorAll('.reply .reply-btn');
+        
+        console.log('=== REPLY BUTTONS FOUND ===');
+        console.log('Reply like buttons:', replyLikeButtons.length);
+        console.log('Reply dislike buttons:', replyDislikeButtons.length);
+        console.log('Reply trust buttons:', replyTrustButtons.length);
+        console.log('Reply distrust buttons:', replyDistrustButtons.length);
+        console.log('Reply edit buttons:', replyEditButtons.length);
+        console.log('Reply delete buttons:', replyDeleteButtons.length);
+        console.log('Reply buttons (for nested replies):', replyButtons.length);
+        
+        // Log details of each button type
+        replyEditButtons.forEach((btn, index) => {
+            console.log(`Reply edit button ${index}:`, {
+                html: btn.outerHTML,
+                'data-reply-id': btn.getAttribute('data-reply-id')
+            });
+        });
+        
+        replyDeleteButtons.forEach((btn, index) => {
+            console.log(`Reply delete button ${index}:`, {
+                html: btn.outerHTML,
+                'data-reply-id': btn.getAttribute('data-reply-id')
+            });
+        });
+        
+        replyButtons.forEach((btn, index) => {
+            console.log(`Reply button (nested) ${index}:`, {
+                html: btn.outerHTML,
+                'data-comment-id': btn.getAttribute('data-comment-id'),
+                'data-parent-reply-id': btn.getAttribute('data-parent-reply-id')
+            });
+        });
+        
+        // Add event listeners for reply reactions
+        replyLikeButtons.forEach(btn => {
             btn.addEventListener('click', async function() {
                 const replyId = this.getAttribute('data-reply-id');
-                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                const commentElement = this.closest('.comment');
+                const commentId = commentElement ? commentElement.getAttribute('data-comment-id') : null;
+                
+                if (!replyId || !commentId) {
+                    return;
+                }
+                
                 await handleReplyReaction(commentId, replyId, 'like');
             });
         });
-        document.querySelectorAll('.reply .dislike-btn').forEach(btn => {
+        replyDislikeButtons.forEach(btn => {
             btn.addEventListener('click', async function() {
                 const replyId = this.getAttribute('data-reply-id');
-                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                const commentElement = this.closest('.comment');
+                const commentId = commentElement ? commentElement.getAttribute('data-comment-id') : null;
+                
+                if (!replyId || !commentId) {
+                    return;
+                }
+                
                 await handleReplyReaction(commentId, replyId, 'dislike');
             });
         });
-        document.querySelectorAll('.reply .trust-btn').forEach(btn => {
+        replyTrustButtons.forEach(btn => {
             btn.addEventListener('click', async function() {
                 const replyId = this.getAttribute('data-reply-id');
-                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                const commentElement = this.closest('.comment');
+                const commentId = commentElement ? commentElement.getAttribute('data-comment-id') : null;
+                
+                if (!replyId || !commentId) {
+                    return;
+                }
+                
                 await handleReplyReaction(commentId, replyId, 'trust');
             });
         });
-        document.querySelectorAll('.reply .distrust-btn').forEach(btn => {
+        replyDistrustButtons.forEach(btn => {
             btn.addEventListener('click', async function() {
                 const replyId = this.getAttribute('data-reply-id');
-                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                const commentElement = this.closest('.comment');
+                const commentId = commentElement ? commentElement.getAttribute('data-comment-id') : null;
+                
+                if (!replyId || !commentId) {
+                    return;
+                }
+                
                 await handleReplyReaction(commentId, replyId, 'distrust');
             });
         });
-        document.querySelectorAll('.reply .reply-btn').forEach(btn => {
+        
+        // Add event listeners for reply edit and delete
+        replyEditButtons.forEach(btn => {
             btn.addEventListener('click', function() {
-                const commentId = this.getAttribute('data-comment-id');
+                console.log('=== EDIT REPLY BUTTON CLICKED ===');
+                console.log('Button element:', this);
+                console.log('Button HTML:', this.outerHTML);
+                console.log('Button attributes:', {
+                    'data-reply-id': this.getAttribute('data-reply-id'),
+                    'class': this.className
+                });
+                
                 const replyId = this.getAttribute('data-reply-id');
-                if (replyId) {
-                    // This is a reply to a reply (nested reply)
-                    showNestedReplyInput(commentId, replyId);
-                } else {
-                    // This is a reply to a comment
-                    showReplyInput(commentId);
-                }
-            });
-        });
-        document.querySelectorAll('.reply .edit-reply-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const replyId = this.getAttribute('data-reply-id');
+                console.log('Reply ID for edit:', replyId);
+                
                 showEditReplyInput(replyId);
             });
         });
-        document.querySelectorAll('.reply .delete-reply-btn').forEach(btn => {
+        
+        replyDeleteButtons.forEach(btn => {
             btn.addEventListener('click', async function() {
+                console.log('=== DELETE REPLY BUTTON CLICKED ===');
+                console.log('Button element:', this);
+                console.log('Button HTML:', this.outerHTML);
+                console.log('Button attributes:', {
+                    'data-reply-id': this.getAttribute('data-reply-id'),
+                    'class': this.className
+                });
+                
                 const replyId = this.getAttribute('data-reply-id');
                 const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                console.log('Delete reply data:', { replyId, commentId });
+                
                 if (confirm('Are you sure you want to delete this reply?')) {
                     await deleteReply(commentId, replyId);
                 }
             });
         });
-
-        // Event listeners for nested replies
-        document.querySelectorAll('.nested-reply .like-btn').forEach(btn => {
-            btn.addEventListener('click', async function() {
-                const nestedReplyId = this.getAttribute('data-nested-reply-id');
-                const replyId = this.closest('.reply').getAttribute('data-reply-id');
-                const commentId = this.closest('.comment').getAttribute('data-comment-id');
-                await handleNestedReplyReaction(commentId, replyId, nestedReplyId, 'like');
-            });
-        });
-        document.querySelectorAll('.nested-reply .dislike-btn').forEach(btn => {
-            btn.addEventListener('click', async function() {
-                const nestedReplyId = this.getAttribute('data-nested-reply-id');
-                const replyId = this.closest('.reply').getAttribute('data-reply-id');
-                const commentId = this.closest('.comment').getAttribute('data-comment-id');
-                await handleNestedReplyReaction(commentId, replyId, nestedReplyId, 'dislike');
-            });
-        });
-        document.querySelectorAll('.nested-reply .trust-btn').forEach(btn => {
-            btn.addEventListener('click', async function() {
-                const nestedReplyId = this.getAttribute('data-nested-reply-id');
-                const replyId = this.closest('.reply').getAttribute('data-reply-id');
-                const commentId = this.closest('.comment').getAttribute('data-comment-id');
-                await handleNestedReplyReaction(commentId, replyId, nestedReplyId, 'trust');
-            });
-        });
-        document.querySelectorAll('.nested-reply .distrust-btn').forEach(btn => {
-            btn.addEventListener('click', async function() {
-                const nestedReplyId = this.getAttribute('data-nested-reply-id');
-                const replyId = this.closest('.reply').getAttribute('data-reply-id');
-                const commentId = this.closest('.comment').getAttribute('data-comment-id');
-                await handleNestedReplyReaction(commentId, replyId, nestedReplyId, 'distrust');
-            });
-        });
-        document.querySelectorAll('.nested-reply .edit-nested-reply-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const nestedReplyId = this.getAttribute('data-nested-reply-id');
-                showEditNestedReplyInput(nestedReplyId);
-            });
-        });
-        document.querySelectorAll('.nested-reply .delete-nested-reply-btn').forEach(btn => {
-            btn.addEventListener('click', async function() {
-                const nestedReplyId = this.getAttribute('data-nested-reply-id');
-                const replyId = this.closest('.reply').getAttribute('data-reply-id');
-                const commentId = this.closest('.comment').getAttribute('data-comment-id');
-                if (confirm('Are you sure you want to delete this nested reply?')) {
-                    await deleteNestedReply(commentId, replyId, nestedReplyId);
-                }
-            });
-        });
+        
+        // Add replies toggle listeners after all other event listeners
+        addRepliesToggleListeners();
     } catch (error) {
         console.error('Failed to load comments:', error);
         commentsList.innerHTML = `
@@ -545,61 +800,75 @@ async function loadComments(sortBy = currentSortBy) {
 
 // Submit a new comment
 async function submitComment() {
-    const input = document.getElementById('comment-input');
-    const comment = input.value.trim();
+    const commentInput = document.getElementById('comment-input');
+    const text = commentInput.value.trim();
     
-    if (comment) {
+    if (!text) return;
+    
+    try {
+        let userData;
         try {
             const result = await chrome.storage.local.get(['isAuthenticated', 'user']);
-            if (!result.isAuthenticated) {
-                alert('Please sign in to add comments');
-                return;
-            }
-
-            const currentUrl = window.location.href;
-            console.log('Submitting comment:', { url: currentUrl, text: comment, user: result.user });
-            
-            const response = await fetch(`${API_BASE_URL}/comments`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    url: currentUrl,
-                    text: comment,
-                    user: result.user
-                })
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('Failed to submit comment:', {
-                    status: response.status,
-                    statusText: response.statusText,
-                    error: errorText
-                });
-                throw new Error(`Failed to submit comment: ${errorText}`);
-            }
-
-            const savedComment = await response.json();
-            console.log('Comment submitted successfully:', savedComment);
-
-            input.value = '';
-            await loadComments(currentSortBy);
-        } catch (error) {
-            console.error('Failed to submit comment:', error);
-            alert('Failed to submit comment. Please try again.');
+            userData = result;
+        } catch (chromeError) {
+            console.warn('Chrome storage access failed in submitComment:', chromeError);
+            alert('Please refresh the page and try again');
+            return;
         }
+        
+        if (!userData.isAuthenticated) {
+            alert('Please sign in to comment');
+            return;
+        }
+
+        const currentUrl = window.location.href;
+        const response = await fetch(`${API_BASE_URL}/comments`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                url: currentUrl,
+                text,
+                user: userData.user
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Failed to submit comment:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText
+            });
+            throw new Error(`Failed to submit comment: ${errorText}`);
+        }
+
+        const newComment = await response.json();
+        console.log('Comment submitted successfully:', newComment);
+        
+        commentInput.value = '';
+        await loadComments(currentSortBy);
+    } catch (error) {
+        console.error('Failed to submit comment:', error);
+        alert('Failed to submit comment. Please try again. Error: ' + error.message);
     }
 }
 
 // Handle like/dislike actions
 async function handleLikeDislike(commentId, action) {
     try {
-        const result = await chrome.storage.local.get(['user']);
-        const userEmail = result.user ? result.user.email : null;
+        let userEmail;
+        try {
+            const result = await chrome.storage.local.get(['user']);
+            userEmail = result.user ? result.user.email : null;
+        } catch (chromeError) {
+            console.warn('Chrome storage access failed in handleLikeDislike:', chromeError);
+            return; // Silently fail if we can't get user data
+        }
+        
         if (!userEmail) {
-            // Silently fail if user is not logged in, as they shouldn't be able to click.
+            // Silently fail if user is not logged in.
             return;
         }
 
@@ -639,14 +908,19 @@ async function handleLikeDislike(commentId, action) {
 // Handle reply reactions (like/dislike/trust/distrust)
 async function handleReplyReaction(commentId, replyId, action) {
     try {
-        const result = await chrome.storage.local.get(['user']);
-        const userEmail = result.user ? result.user.email : null;
+        let userEmail;
+        try {
+            const result = await chrome.storage.local.get(['user']);
+            userEmail = result.user ? result.user.email : null;
+        } catch (chromeError) {
+            console.warn('Chrome storage access failed in handleReplyReaction:', chromeError);
+            return; // Silently fail if we can't get user data
+        }
+        
         if (!userEmail) {
             // Silently fail if user is not logged in.
             return;
         }
-
-        console.log(`Handling ${action} for reply:`, replyId, 'in comment:', commentId);
 
         const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}/reaction`, {
             method: 'PUT',
@@ -670,8 +944,6 @@ async function handleReplyReaction(commentId, replyId, action) {
         }
 
         const updatedComment = await response.json();
-        console.log('Reply reaction updated successfully:', updatedComment);
-
         await loadComments(currentSortBy);
     } catch (error) {
         console.error('Failed to update reply reaction:', error);
@@ -680,54 +952,189 @@ async function handleReplyReaction(commentId, replyId, action) {
 }
 
 // Submit a reply
-async function submitReply(commentId, replyText) {
+async function submitReply(commentId, parentReplyId, replyText) {
     const text = replyText.trim();
     if (!text) return;
     try {
-        const result = await chrome.storage.local.get(['isAuthenticated', 'user']);
-        if (!result.isAuthenticated) {
+        // Add error handling for extension context
+        let userData;
+        try {
+            const result = await chrome.storage.local.get(['isAuthenticated', 'user']);
+            userData = result;
+        } catch (chromeError) {
+            console.warn('Chrome storage access failed, trying to continue:', chromeError);
+            // Try to get user data from a fallback source or use cached data
+            userData = { isAuthenticated: true, user: { name: 'User' } };
+        }
+        
+        if (!userData.isAuthenticated) {
             alert('Please sign in to reply to comments');
             return;
         }
 
-        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies`, {
+        console.log('Submitting reply with data:', { commentId, parentReplyId, text, user: userData.user.name });
+
+        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${parentReplyId}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 text,
-                user: result.user
+                user: userData.user
             })
         });
 
+        console.log('Response status:', response.status);
+        console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
         if (!response.ok) {
-            throw new Error('Failed to submit reply');
+            const errorText = await response.text();
+            console.error('Failed to submit reply. Server response:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText,
+                url: response.url
+            });
+            throw new Error(`Server error (${response.status}): ${errorText}`);
         }
 
-        loadComments();
+        const responseData = await response.json();
+        console.log('Reply submitted successfully:', responseData);
+        
+        // Clear the specific input that was submitted
+        const container = document.getElementById(`reply-input-${parentReplyId}`);
+        if (container) {
+            container.style.display = 'none';
+            container.innerHTML = '';
+        }
+        
+        // Reload comments to show the new reply
+        await loadComments(currentSortBy);
     } catch (error) {
-        console.error('Failed to submit reply:', error);
+        console.error('Error in submitReply:', error);
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack,
+            commentId,
+            parentReplyId,
+            replyText: text.substring(0, 50)
+        });
+        
+        // Don't show alert for extension context errors, just log them
+        if (error.message.includes('Extension context invalidated')) {
+            console.warn('Extension context was invalidated, this is usually temporary');
+            // Try to reload comments anyway since the backend might have succeeded
+            try {
+                await loadComments(currentSortBy);
+            } catch (reloadError) {
+                console.error('Failed to reload comments after extension context error:', reloadError);
+            }
+        } else {
+            alert('Failed to submit reply. Please try again. Error: ' + error.message);
+        }
     }
 }
 
 // Show reply input for a comment
-function showReplyInput(commentId) {
-    // Hide all other reply inputs
-    document.querySelectorAll('.reply-input-container').forEach(el => el.style.display = 'none');
-    const container = document.getElementById('reply-input-' + commentId);
+function showReplyInput(commentId, containerId, apiParentId) {
+    console.log('showReplyInput called with:', { commentId, containerId, apiParentId });
+    console.log('Looking for container with ID:', `reply-input-${containerId}`);
+    
+    const container = document.getElementById(`reply-input-${containerId}`);
+    console.log('Container found:', container);
+    
     if (container) {
-        container.innerHTML = `
-            <textarea class="reply-textarea" style="width:100%;min-height:40px;"></textarea>
-            <button class="submit-reply-btn" style="margin-top:4px;">Reply</button>
-        `;
-        container.style.display = 'block';
-        const btn = container.querySelector('.submit-reply-btn');
-        btn.addEventListener('click', async function() {
-            const replyText = container.querySelector('.reply-textarea').value;
-            await submitReply(commentId, replyText);
-            container.style.display = 'none';
+        // Check if this container is already visible and has content
+        const existingTextarea = container.querySelector('.reply-textarea');
+        const existingText = existingTextarea ? existingTextarea.value : '';
+        
+        // Hide any other open input boxes but preserve their content
+        document.querySelectorAll('.reply-input-container, .edit-input-container').forEach(c => {
+            if (c !== container) {
+                // Store the current text before hiding
+                const textarea = c.querySelector('.reply-textarea, .edit-textarea');
+                if (textarea && textarea.value.trim()) {
+                    c.setAttribute('data-preserved-text', textarea.value);
+                }
+                c.style.display = 'none';
+            }
         });
+
+        // Only recreate the HTML if the container is empty or not visible
+        if (!existingTextarea || container.style.display === 'none') {
+            container.innerHTML = `
+                <div class="input-wrapper">
+                    <textarea class="reply-textarea" placeholder="Write a reply..." rows="3">${existingText}</textarea>
+                    <button class="emoji-btn reply-emoji-btn">😊</button>
+                    <button class="gif-btn reply-gif-btn">🎬</button>
+                </div>
+                <div class="emoji-picker reply-emoji-picker" style="display: none;">
+                    <div class="emoji-categories">
+                        <button class="emoji-category active" data-category="smileys">😊</button>
+                        <button class="emoji-category" data-category="animals">🐶</button>
+                        <button class="emoji-category" data-category="food">🍕</button>
+                        <button class="emoji-category" data-category="activities">⚽</button>
+                        <button class="emoji-category" data-category="travel">🚗</button>
+                        <button class="emoji-category" data-category="objects">💡</button>
+                        <button class="emoji-category" data-category="symbols">❤️</button>
+                        <button class="emoji-category" data-category="flags">🏁</button>
+                    </div>
+                    <div class="emoji-grid reply-emoji-grid"></div>
+                </div>
+                <div class="gif-picker reply-gif-picker" style="display: none;">
+                    <div class="gif-search-container">
+                        <input type="text" class="gif-search-input" placeholder="Search GIFs...">
+                        <button class="gif-search-btn">🔍</button>
+                    </div>
+                    <div class="gif-grid reply-gif-grid"></div>
+                    <div class="gif-loading reply-gif-loading" style="display: none;">Loading...</div>
+                </div>
+                <button class="submit-reply-btn" style="margin-top:4px;">Reply</button>
+                <button class="cancel-reply-btn" style="margin-top:4px;">Cancel</button>
+            `;
+            
+            // Re-attach event listeners
+            const submitBtn = container.querySelector('.submit-reply-btn');
+            const cancelBtn = container.querySelector('.cancel-reply-btn');
+            
+            // Remove existing listeners to prevent duplicates
+            submitBtn.replaceWith(submitBtn.cloneNode(true));
+            cancelBtn.replaceWith(cancelBtn.cloneNode(true));
+            
+            const newSubmitBtn = container.querySelector('.submit-reply-btn');
+            const newCancelBtn = container.querySelector('.cancel-reply-btn');
+            
+            newSubmitBtn.addEventListener('click', async () => {
+                const replyText = container.querySelector('.reply-textarea').value;
+                console.log('Submitting reply with data:', { commentId, apiParentId, replyText });
+                await submitReply(commentId, apiParentId, replyText);
+            });
+            
+            newCancelBtn.addEventListener('click', () => {
+                container.style.display = 'none';
+                container.innerHTML = '';
+            });
+        }
+        
+        container.style.display = 'block';
+        const textarea = container.querySelector('.reply-textarea');
+        textarea.focus();
+        
+        // Restore the text if it was preserved
+        if (existingText && !textarea.value) {
+            textarea.value = existingText;
+        }
+        
+        // Check for preserved text from other containers
+        const preservedText = container.getAttribute('data-preserved-text');
+        if (preservedText && !textarea.value) {
+            textarea.value = preservedText;
+            container.removeAttribute('data-preserved-text');
+        }
+    } else {
+        console.error('Container not found for ID:', `reply-input-${containerId}`);
+        console.log('Available containers:', Array.from(document.querySelectorAll('.reply-input-container')).map(c => c.id));
     }
 }
 
@@ -739,7 +1146,32 @@ function showEditInput(commentId) {
     const textDiv = document.getElementById('comment-text-' + commentId);
     if (container && textDiv) {
         container.innerHTML = `
-            <textarea class="edit-textarea" style="width:100%;min-height:40px;">${textDiv.textContent}</textarea>
+            <div class="input-wrapper">
+                <textarea class="edit-textarea" style="width:100%;min-height:40px;">${textDiv.textContent}</textarea>
+                <button class="emoji-btn edit-emoji-btn">😊</button>
+                <button class="gif-btn edit-gif-btn">🎬</button>
+            </div>
+            <div class="emoji-picker edit-emoji-picker" style="display: none;">
+                <div class="emoji-categories">
+                    <button class="emoji-category active" data-category="smileys">😊</button>
+                    <button class="emoji-category" data-category="animals">🐶</button>
+                    <button class="emoji-category" data-category="food">🍕</button>
+                    <button class="emoji-category" data-category="activities">⚽</button>
+                    <button class="emoji-category" data-category="travel">🚗</button>
+                    <button class="emoji-category" data-category="objects">💡</button>
+                    <button class="emoji-category" data-category="symbols">❤️</button>
+                    <button class="emoji-category" data-category="flags">🏁</button>
+                </div>
+                <div class="emoji-grid edit-emoji-grid"></div>
+            </div>
+            <div class="gif-picker edit-gif-picker" style="display: none;">
+                <div class="gif-search-container">
+                    <input type="text" class="gif-search-input" placeholder="Search GIFs...">
+                    <button class="gif-search-btn">🔍</button>
+                </div>
+                <div class="gif-grid edit-gif-grid"></div>
+                <div class="gif-loading edit-gif-loading" style="display: none;">Loading...</div>
+            </div>
             <button class="save-edit-btn" style="margin-top:4px;">Save</button>
             <button class="cancel-edit-btn" style="margin-top:4px;">Cancel</button>
         `;
@@ -794,23 +1226,25 @@ async function saveEdit(commentId, newText) {
 async function deleteComment(commentId) {
     try {
         const result = await chrome.storage.local.get(['user']);
-        const userEmail = result.user ? result.user.email : null;
+        const userEmail = result.user?.email;
         if (!userEmail) {
-            alert('Please sign in to delete comments');
+            alert('You must be logged in to delete comments.');
             return;
         }
-
-        const response = await fetch(`${API_BASE_URL}/comments/${commentId}?userEmail=${encodeURIComponent(userEmail)}`, {
-            method: 'DELETE'
+        console.log(`Attempting to delete comment ${commentId} by user ${userEmail}`);
+        const response = await fetch(`${API_BASE_URL}/comments/${commentId}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userEmail: userEmail })
         });
-
         if (!response.ok) {
-            throw new Error('Failed to delete comment');
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to delete comment');
         }
-
-        loadComments();
+        await loadComments(currentSortBy);
     } catch (error) {
-        console.error('Failed to delete comment:', error);
+        console.error('Error deleting comment:', error);
+        alert(`Error: ${error.message}`);
     }
 }
 
@@ -821,7 +1255,32 @@ function showEditReplyInput(replyId) {
 
     if (container && textDiv) {
         container.innerHTML = `
-            <textarea class="edit-textarea" style="width:100%;min-height:40px;">${textDiv.textContent}</textarea>
+            <div class="input-wrapper">
+                <textarea class="edit-textarea" style="width:100%;min-height:40px;">${textDiv.textContent}</textarea>
+                <button class="emoji-btn edit-reply-emoji-btn">😊</button>
+                <button class="gif-btn edit-reply-gif-btn">🎬</button>
+            </div>
+            <div class="emoji-picker edit-reply-emoji-picker" style="display: none;">
+                <div class="emoji-categories">
+                    <button class="emoji-category active" data-category="smileys">😊</button>
+                    <button class="emoji-category" data-category="animals">🐶</button>
+                    <button class="emoji-category" data-category="food">🍕</button>
+                    <button class="emoji-category" data-category="activities">⚽</button>
+                    <button class="emoji-category" data-category="travel">🚗</button>
+                    <button class="emoji-category" data-category="objects">💡</button>
+                    <button class="emoji-category" data-category="symbols">❤️</button>
+                    <button class="emoji-category" data-category="flags">🏁</button>
+                </div>
+                <div class="emoji-grid edit-reply-emoji-grid"></div>
+            </div>
+            <div class="gif-picker edit-reply-gif-picker" style="display: none;">
+                <div class="gif-search-container">
+                    <input type="text" class="gif-search-input" placeholder="Search GIFs...">
+                    <button class="gif-search-btn">🔍</button>
+                </div>
+                <div class="gif-grid edit-reply-gif-grid"></div>
+                <div class="gif-loading edit-reply-gif-loading" style="display: none;">Loading...</div>
+            </div>
             <button class="save-edit-reply-btn" style="margin-top:4px;">Save</button>
             <button class="cancel-edit-reply-btn" style="margin-top:4px;">Cancel</button>
         `;
@@ -871,20 +1330,25 @@ async function saveEditReply(commentId, replyId, newText) {
 async function deleteReply(commentId, replyId) {
     try {
         const result = await chrome.storage.local.get(['user']);
-        const userEmail = result.user ? result.user.email : null;
+        const userEmail = result.user?.email;
         if (!userEmail) {
-            alert('Please sign in to delete replies');
+            alert('You must be logged in to delete replies.');
             return;
         }
-
-        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}?userEmail=${encodeURIComponent(userEmail)}`, {
-            method: 'DELETE'
+        console.log(`Attempting to delete reply ${replyId} by user ${userEmail}`);
+        const response = await fetch(`${API_BASE_URL}/replies/${replyId}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userEmail: userEmail })
         });
-
-        if (!response.ok) throw new Error('Failed to delete reply');
-        loadComments();
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to delete reply');
+        }
+        await loadComments(currentSortBy);
     } catch (error) {
-        console.error('Failed to delete reply:', error);
+        console.error('Error deleting reply:', error);
+        alert(`Error: ${error.message}`);
     }
 }
 
@@ -895,17 +1359,19 @@ function renderComments(comments, userEmail, currentUrl) {
         const isDisliked = comment.dislikedBy && comment.dislikedBy.includes(userEmail);
         const isTrusted = comment.trustedBy && comment.trustedBy.includes(userEmail);
         const isDistrusted = comment.distrustedBy && comment.distrustedBy.includes(userEmail);
-        
+        // Convert markdown images to HTML <img> tags
+        const commentTextWithImages = comment.text.replace(/!\[([^\]]*)\]\(([^\)]+)\)/g, '<img src="$2" alt="$1" style="max-width: 100%; max-height: 200px; display: block; margin: 8px 0;">');
+        const repliesCount = comment.replies && comment.replies.length ? comment.replies.length : 0;
         return `
             <div class="comment" data-comment-id="${comment._id}">
                 <div class="comment-header">
-                    <img src="${comment.user.picture}" alt="Profile" class="comment-avatar">
+                    <img src="${comment.user?.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="Profile" class="comment-avatar">
                     <div class="comment-info">
-                        <div class="comment-author">${comment.user.name}</div>
+                        <div class="comment-author">${comment.user?.name || 'Anonymous'}</div>
                         <div class="comment-time">${new Date(comment.timestamp).toLocaleString()}</div>
                     </div>
                 </div>
-                <div class="comment-text" id="comment-text-${comment._id}">${comment.text}</div>
+                <div class="comment-text" id="comment-text-${comment._id}">${commentTextWithImages}</div>
                 <div class="comment-actions">
                     <button class="like-btn ${isLiked ? 'liked' : ''}" data-comment-id="${comment._id}">
                         👍 ${comment.likes || 0}
@@ -920,16 +1386,19 @@ function renderComments(comments, userEmail, currentUrl) {
                         ❌ ${comment.distrusts || 0}
                     </button>
                     <button class="reply-btn" data-comment-id="${comment._id}">Reply</button>
-                    ${comment.user.email === userEmail ? `
+                    ${comment.user?.email === userEmail ? `
                         <button class="edit-btn" data-comment-id="${comment._id}">Edit</button>
                         <button class="delete-btn" data-comment-id="${comment._id}">Delete</button>
                     ` : ''}
                 </div>
                 <div class="edit-input-container" id="edit-input-${comment._id}" style="display:none;"></div>
                 <div class="reply-input-container" id="reply-input-${comment._id}" style="display:none;"></div>
-                ${comment.replies && comment.replies.length > 0 ? `
-                    <div class="replies">
-                        ${renderReplies(comment.replies, comment._id, userEmail)}
+                ${repliesCount > 0 ? `
+                    <div class="replies-collapsible" id="replies-collapsible-${comment._id}">
+                        <div class="replies-toggle" data-comment-id="${comment._id}" style="cursor:pointer; color:#007bff; font-weight:500; margin:8px 0;">Replies (${repliesCount}) ▼</div>
+                        <div class="replies replies-collapsible-content" id="replies-content-${comment._id}" style="display:none;">
+                            ${renderReplies(comment.replies, 1, comment._id, userEmail)}
+                        </div>
                     </div>
                 ` : ''}
             </div>
@@ -937,24 +1406,64 @@ function renderComments(comments, userEmail, currentUrl) {
     }).join('');
 }
 
-// Function to render replies with nested replies support
-function renderReplies(replies, commentId, userEmail, level = 1) {
+// Recursive function to render replies with infinite nesting
+function renderReplies(replies, level = 1, commentId, userEmail) {
+    console.log(`Rendering replies at level ${level}:`, replies.length, 'replies');
+    console.log('Full replies array:', JSON.stringify(replies, null, 2));
+    
     return replies.map(reply => {
+        // Ensure every reply has a replies array
+        if (!Array.isArray(reply.replies)) reply.replies = [];
+        
+        console.log(`Processing reply:`, {
+            id: reply._id,
+            idType: typeof reply._id,
+            text: reply.text?.substring(0, 50) + '...', 
+            user: reply.user?.name,
+            hasReplies: reply.replies && reply.replies.length > 0,
+            fullReply: reply
+        });
+        
+        // Debug: Check if reply._id is actually undefined
+        if (!reply._id) {
+            console.error('WARNING: reply._id is falsy!', {
+                replyId: reply._id,
+                replyIdType: typeof reply._id,
+                fullReply: reply
+            });
+        }
+        
         const isReplyLiked = reply.likedBy && reply.likedBy.includes(userEmail);
         const isReplyDisliked = reply.dislikedBy && reply.dislikedBy.includes(userEmail);
         const isReplyTrusted = reply.trustedBy && reply.trustedBy.includes(userEmail);
         const isReplyDistrusted = reply.distrustedBy && reply.distrustedBy.includes(userEmail);
         
+        const marginLeft = level * 32;
+        console.log(`Reply ${reply._id} at level ${level}, margin-left: ${marginLeft}px`);
+        console.log(`Reply data:`, { 
+            id: reply._id, 
+            text: reply.text?.substring(0, 50) + '...', 
+            user: reply.user?.name,
+            hasReplies: reply.replies && reply.replies.length > 0
+        });
+        
+        // Debug the reply button attributes
+        const replyButtonHtml = `<button class="reply-btn" data-comment-id="${commentId}" ${reply._id ? `data-parent-reply-id="${reply._id}"` : ''}>Reply</button>`;
+        console.log(`Reply button HTML for reply ${reply._id}:`, replyButtonHtml);
+        
+        // Convert markdown images to HTML <img> tags
+        const replyTextWithImages = reply.text.replace(/!\[([^\]]*)\]\(([^\)]+)\)/g, '<img src="$2" alt="$1" style="max-width: 100%; max-height: 200px; display: block; margin: 8px 0;">');
+        
         return `
-            <div class="reply" data-reply-id="${reply._id}">
+            <div class="reply" data-reply-id="${reply._id}" data-reply-level="${level}" style="margin-left: ${marginLeft}px !important;">
                 <div class="reply-header">
-                    <img src="${reply.user.picture}" alt="Profile" class="reply-avatar">
+                    <img src="${reply.user?.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="Profile" class="reply-avatar">
                     <div class="reply-info">
-                        <div class="reply-author">${reply.user.name}</div>
+                        <div class="reply-author">${reply.user?.name || 'Anonymous'}</div>
                         <div class="reply-time">${new Date(reply.timestamp).toLocaleString()}</div>
                     </div>
                 </div>
-                <div class="reply-text">${reply.text}</div>
+                <div class="reply-text">${replyTextWithImages}</div>
                 <div class="reply-actions">
                     <button class="like-btn ${isReplyLiked ? 'liked' : ''}" data-reply-id="${reply._id}">
                         👍 ${reply.likes || 0}
@@ -968,61 +1477,19 @@ function renderReplies(replies, commentId, userEmail, level = 1) {
                     <button class="distrust-btn ${isReplyDistrusted ? 'distrusted' : ''}" data-reply-id="${reply._id}">
                         ❌ ${reply.distrusts || 0}
                     </button>
-                    <button class="reply-btn" data-comment-id="${commentId}" data-reply-id="${reply._id}">Reply</button>
-                    ${reply.user.email === userEmail ? `
+                    <button class="reply-btn" data-comment-id="${commentId}" ${reply._id ? `data-parent-reply-id="${reply._id}"` : ''}>Reply</button>
+                    ${reply.user?.email === userEmail ? `
                         <button class="edit-reply-btn" data-reply-id="${reply._id}">Edit</button>
                         <button class="delete-reply-btn" data-reply-id="${reply._id}">Delete</button>
                     ` : ''}
                 </div>
+                <div class="reply-input-container" id="reply-input-${reply._id}" style="display:none;"></div>
                 <div class="edit-reply-input-container" id="edit-reply-input-${reply._id}" style="display:none;"></div>
-                <div class="nested-reply-input-container" id="nested-reply-input-${reply._id}" style="display:none;"></div>
-                ${reply.nestedReplies && reply.nestedReplies.length > 0 ? `
-                    <div class="nested-replies">
-                        ${renderNestedReplies(reply.nestedReplies, commentId, reply._id, userEmail, level + 1)}
+                ${reply.replies && reply.replies.length > 0 ? `
+                    <div class="nested-replies-container">
+                        ${renderReplies(reply.replies, level + 1, commentId, userEmail)}
                     </div>
                 ` : ''}
-            </div>
-        `;
-    }).join('');
-}
-
-// Function to render nested replies
-function renderNestedReplies(nestedReplies, commentId, parentReplyId, userEmail, level = 2) {
-    return nestedReplies.map(nestedReply => {
-        const isNestedReplyLiked = nestedReply.likedBy && nestedReply.likedBy.includes(userEmail);
-        const isNestedReplyDisliked = nestedReply.dislikedBy && nestedReply.dislikedBy.includes(userEmail);
-        const isNestedReplyTrusted = nestedReply.trustedBy && nestedReply.trustedBy.includes(userEmail);
-        const isNestedReplyDistrusted = nestedReply.distrustedBy && nestedReply.distrustedBy.includes(userEmail);
-        
-        return `
-            <div class="nested-reply" data-nested-reply-id="${nestedReply._id}">
-                <div class="nested-reply-header">
-                    <img src="${nestedReply.user.picture}" alt="Profile" class="nested-reply-avatar">
-                    <div class="nested-reply-info">
-                        <div class="nested-reply-author">${nestedReply.user.name}</div>
-                        <div class="nested-reply-time">${new Date(nestedReply.timestamp).toLocaleString()}</div>
-                    </div>
-                </div>
-                <div class="nested-reply-text">${nestedReply.text}</div>
-                <div class="nested-reply-actions">
-                    <button class="like-btn ${isNestedReplyLiked ? 'liked' : ''}" data-nested-reply-id="${nestedReply._id}">
-                        👍 ${nestedReply.likes || 0}
-                    </button>
-                    <button class="dislike-btn ${isNestedReplyDisliked ? 'disliked' : ''}" data-nested-reply-id="${nestedReply._id}">
-                        👎 ${nestedReply.dislikes || 0}
-                    </button>
-                    <button class="trust-btn ${isNestedReplyTrusted ? 'trusted' : ''}" data-nested-reply-id="${nestedReply._id}">
-                        ✅ ${nestedReply.trusts || 0}
-                    </button>
-                    <button class="distrust-btn ${isNestedReplyDistrusted ? 'distrusted' : ''}" data-nested-reply-id="${nestedReply._id}">
-                        ❌ ${nestedReply.distrusts || 0}
-                    </button>
-                    ${nestedReply.user.email === userEmail ? `
-                        <button class="edit-nested-reply-btn" data-nested-reply-id="${nestedReply._id}">Edit</button>
-                        <button class="delete-nested-reply-btn" data-nested-reply-id="${nestedReply._id}">Delete</button>
-                    ` : ''}
-                </div>
-                <div class="edit-nested-reply-input-container" id="edit-nested-reply-input-${nestedReply._id}" style="display:none;"></div>
             </div>
         `;
     }).join('');
@@ -1076,7 +1543,7 @@ async function restorePanelState(panel) {
             // Set collapsed state
             if (state.isCollapsed) {
                 panel.querySelector('.comments-content').style.display = 'none';
-                document.getElementById('toggle-comments').textContent = '+';
+                document.getElementById('minimize-comments').textContent = '🗕';
             }
         }
     } catch (error) {
@@ -1143,209 +1610,842 @@ function sortComments(comments, sortBy) {
     });
 }
 
-// Handle nested reply reactions (like/dislike/trust/distrust)
-async function handleNestedReplyReaction(commentId, replyId, nestedReplyId, action) {
-    try {
-        const result = await chrome.storage.local.get(['user']);
-        const userEmail = result.user ? result.user.email : null;
-        if (!userEmail) {
-            return;
-        }
+// === Emoji Picker Support ===
 
-        console.log(`Handling ${action} for nested reply:`, nestedReplyId, 'in reply:', replyId, 'in comment:', commentId);
+const EMOJI_CATEGORIES = {
+    smileys: ['😀','😁','😂','🤣','😊','😍','😎','😭','😡','😱','😴','😇','🥳','🤔','😅','😉','😘','😜','🤗','😏'],
+    animals: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🦄','🐔','🐧','🐦','🐤'],
+    food: ['🍏','🍎','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🍈','🍒','🍑','🍍','🥭','🥝','🍅','🍆','🥑','🥦','🥕'],
+    activities: ['⚽','🏀','🏈','⚾','🎾','🏐','🏉','🎱','🏓','🏸','🥅','🏒','🏑','🏏','⛳','🏹','🎣','🥊','🥋','🎽'],
+    travel: ['🚗','🚕','🚙','🚌','🚎','🏎️','🚓','🚑','🚒','🚐','🚚','🚛','🚜','🛵','🏍️','🚲','🛴','🚨','✈️','🚀'],
+    objects: ['💡','🔑','🔒','🔓','🛡️','🔨','⏰','📱','💻','🖨️','🕹️','📷','🎥','📺','📻','🎧','📡','🔋','🔌','💸'],
+    symbols: ['❤️','💔','💕','💞','💓','💗','💖','💘','💝','💟','❣️','💤','💢','💥','💦','💨','💫','💬','🗨️','🕳️'],
+    flags: ['🏁','🚩','🎌','🏴','🏳️','🏳️‍🌈','🏳️‍⚧️','🏴‍☠️','🇺🇳','🇦🇺','🇧🇷','🇨🇦','🇨🇳','🇫🇷','🇩🇪','🇮🇳','🇯🇵','🇷🇺','🇬🇧','🇺🇸']
+};
 
-        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}/nested-replies/${nestedReplyId}/reaction`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                type: action,
-                userEmail
-            })
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Failed to update nested reply reaction:', {
-                status: response.status,
-                statusText: response.statusText,
-                error: errorText
-            });
-            throw new Error(`Failed to update nested reply reaction: ${errorText}`);
-        }
-
-        const updatedComment = await response.json();
-        console.log('Nested reply reaction updated successfully:', updatedComment);
-
-        await loadComments(currentSortBy);
-    } catch (error) {
-        console.error('Failed to update nested reply reaction:', error);
-    }
+function renderEmojiGrid(category, gridElem, onEmojiClick) {
+    console.log('renderEmojiGrid called with category:', category, 'gridElem:', gridElem);
+    gridElem.innerHTML = '';
+    const emojis = EMOJI_CATEGORIES[category];
+    console.log('Emojis to render:', emojis.length);
+    emojis.forEach(emoji => {
+        const btn = document.createElement('button');
+        btn.className = 'emoji-item';
+        btn.type = 'button';
+        btn.textContent = emoji;
+        btn.style.fontSize = '20px';
+        btn.style.padding = '4px';
+        btn.style.border = 'none';
+        btn.style.background = 'none';
+        btn.style.cursor = 'pointer';
+        btn.addEventListener('click', () => onEmojiClick(emoji));
+        gridElem.appendChild(btn);
+    });
+    console.log('Emoji grid rendered with', gridElem.children.length, 'items');
 }
 
-// Submit a nested reply
-async function submitNestedReply(commentId, replyId, nestedReplyText) {
-    const text = nestedReplyText.trim();
-    if (!text) return;
-    try {
-        const result = await chrome.storage.local.get(['isAuthenticated', 'user']);
-        if (!result.isAuthenticated) {
-            alert('Please sign in to reply to comments');
-            return;
-        }
-
-        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}/nested-replies`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                text,
-                user: result.user
-            })
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Failed to submit nested reply:', {
-                status: response.status,
-                statusText: response.statusText,
-                error: errorText
-            });
-            throw new Error(`Failed to submit nested reply: ${errorText}`);
-        }
-
-        const updatedComment = await response.json();
-        console.log('Nested reply submitted successfully:', updatedComment);
-
-        await loadComments(currentSortBy);
-    } catch (error) {
-        console.error('Failed to submit nested reply:', error);
-        alert('Failed to submit nested reply. Please try again.');
-    }
-}
-
-// Show nested reply input
-function showNestedReplyInput(commentId, replyId) {
-    const container = document.getElementById(`nested-reply-input-${replyId}`);
-    if (container) {
-        container.innerHTML = `
-            <textarea class="nested-reply-textarea" placeholder="Write a nested reply..." rows="3"></textarea>
-            <button class="submit-nested-reply-btn" style="margin-top:4px;">Reply</button>
-        `;
-        container.style.display = 'block';
-        
-        const submitBtn = container.querySelector('.submit-nested-reply-btn');
-        submitBtn.addEventListener('click', async () => {
-            const nestedReplyText = container.querySelector('.nested-reply-textarea').value;
-            await submitNestedReply(commentId, replyId, nestedReplyText);
-        });
-    }
-}
-
-// Show edit nested reply input
-function showEditNestedReplyInput(nestedReplyId) {
-    const container = document.getElementById(`edit-nested-reply-input-${nestedReplyId}`);
-    const textDiv = document.querySelector(`.nested-reply[data-nested-reply-id="${nestedReplyId}"] .nested-reply-text`);
-    const currentText = textDiv.textContent;
+function initializeEmojiPicker() {
+    // Main comment input
+    const emojiBtn = document.getElementById('comment-emoji-btn');
+    const emojiPicker = document.getElementById('comment-emoji-picker');
+    const emojiGrid = document.getElementById('comment-emoji-grid');
+    const textarea = document.getElementById('comment-input');
+    let currentCategory = 'smileys';
     
-    if (container) {
-        container.innerHTML = `
-            <textarea class="edit-nested-reply-textarea" rows="3">${currentText}</textarea>
-            <button class="save-edit-nested-reply-btn" style="margin-top:4px;">Save</button>
-            <button class="cancel-edit-nested-reply-btn" style="margin-top:4px;">Cancel</button>
+    console.log('Emoji picker elements:', { emojiBtn, emojiPicker, emojiGrid, textarea });
+    
+    if (emojiBtn && emojiPicker && emojiGrid && textarea) {
+        emojiBtn.addEventListener('click', (e) => {
+            console.log('Emoji button clicked!');
+            e.stopPropagation();
+            const newDisplay = emojiPicker.style.display === 'block' ? 'none' : 'block';
+            console.log('Setting emoji picker display to:', newDisplay);
+            emojiPicker.style.display = newDisplay;
+            renderEmojiGrid(currentCategory, emojiGrid, (emoji) => {
+                insertAtCursor(textarea, emoji);
+                emojiPicker.style.display = 'none';
+                textarea.focus();
+            });
+        });
+        emojiPicker.addEventListener('click', e => e.stopPropagation());
+        document.addEventListener('click', () => emojiPicker.style.display = 'none');
+        // Category switching
+        emojiPicker.querySelectorAll('.emoji-category').forEach(btn => {
+            btn.addEventListener('click', function() {
+                emojiPicker.querySelectorAll('.emoji-category').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                currentCategory = this.getAttribute('data-category');
+                renderEmojiGrid(currentCategory, emojiGrid, (emoji) => {
+                    insertAtCursor(textarea, emoji);
+                    emojiPicker.style.display = 'none';
+                    textarea.focus();
+                });
+            });
+        });
+        renderEmojiGrid(currentCategory, emojiGrid, (emoji) => {
+            insertAtCursor(textarea, emoji);
+            emojiPicker.style.display = 'none';
+            textarea.focus();
+        });
+    }
+
+    // Delegate for reply and edit emoji pickers
+    document.body.addEventListener('click', function(e) {
+        // Reply input
+        if (e.target.classList.contains('reply-emoji-btn')) {
+            console.log('Reply emoji button clicked!');
+            const container = e.target.closest('.reply-input-container');
+            const picker = container.querySelector('.reply-emoji-picker');
+            const grid = container.querySelector('.reply-emoji-grid');
+            const textarea = container.querySelector('.reply-textarea');
+            let currentCategory = 'smileys';
+            picker.style.display = picker.style.display === 'block' ? 'none' : 'block';
+            renderEmojiGrid(currentCategory, grid, (emoji) => {
+                insertAtCursor(textarea, emoji);
+                picker.style.display = 'none';
+                textarea.focus();
+            });
+            picker.querySelectorAll('.emoji-category').forEach(btn => {
+                btn.onclick = function() {
+                    picker.querySelectorAll('.emoji-category').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    currentCategory = this.getAttribute('data-category');
+                    renderEmojiGrid(currentCategory, grid, (emoji) => {
+                        insertAtCursor(textarea, emoji);
+                        picker.style.display = 'none';
+                        textarea.focus();
+                    });
+                };
+            });
+            picker.onclick = e => e.stopPropagation();
+            // Use a more reliable approach for closing the picker
+            const closePicker = (event) => {
+                // Don't close if clicking inside the picker
+                if (picker.contains(event.target)) {
+                    return;
+                }
+                if (picker.style.display === 'block') {
+                    picker.style.display = 'none';
+                    document.removeEventListener('click', closePicker);
+                }
+            };
+            // Add a small delay to avoid immediate closure
+            setTimeout(() => {
+                document.addEventListener('click', closePicker);
+            }, 10);
+        }
+        // Edit comment input
+        if (e.target.classList.contains('edit-emoji-btn')) {
+            const container = e.target.closest('.edit-input-container');
+            const picker = container.querySelector('.edit-emoji-picker');
+            const grid = container.querySelector('.edit-emoji-grid');
+            const textarea = container.querySelector('.edit-textarea');
+            let currentCategory = 'smileys';
+            picker.style.display = picker.style.display === 'block' ? 'none' : 'block';
+            renderEmojiGrid(currentCategory, grid, (emoji) => {
+                insertAtCursor(textarea, emoji);
+                picker.style.display = 'none';
+                textarea.focus();
+            });
+            picker.querySelectorAll('.emoji-category').forEach(btn => {
+                btn.onclick = function() {
+                    picker.querySelectorAll('.emoji-category').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    currentCategory = this.getAttribute('data-category');
+                    renderEmojiGrid(currentCategory, grid, (emoji) => {
+                        insertAtCursor(textarea, emoji);
+                        picker.style.display = 'none';
+                        textarea.focus();
+                    });
+                };
+            });
+            picker.onclick = e => e.stopPropagation();
+            // Use a more reliable approach for closing the picker
+            const closePicker = (event) => {
+                // Don't close if clicking inside the picker
+                if (picker.contains(event.target)) {
+                    return;
+                }
+                if (picker.style.display === 'block') {
+                    picker.style.display = 'none';
+                    document.removeEventListener('click', closePicker);
+                }
+            };
+            // Add a small delay to avoid immediate closure
+            setTimeout(() => {
+                document.addEventListener('click', closePicker);
+            }, 10);
+        }
+        // Edit reply input
+        if (e.target.classList.contains('edit-reply-emoji-btn')) {
+            const container = e.target.closest('.edit-reply-input-container');
+            const picker = container.querySelector('.edit-reply-emoji-picker');
+            const grid = container.querySelector('.edit-reply-emoji-grid');
+            const textarea = container.querySelector('.edit-textarea');
+            let currentCategory = 'smileys';
+            picker.style.display = picker.style.display === 'block' ? 'none' : 'block';
+            renderEmojiGrid(currentCategory, grid, (emoji) => {
+                insertAtCursor(textarea, emoji);
+                picker.style.display = 'none';
+                textarea.focus();
+            });
+            picker.querySelectorAll('.emoji-category').forEach(btn => {
+                btn.onclick = function() {
+                    picker.querySelectorAll('.emoji-category').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    currentCategory = this.getAttribute('data-category');
+                    renderEmojiGrid(currentCategory, grid, (emoji) => {
+                        insertAtCursor(textarea, emoji);
+                        picker.style.display = 'none';
+                        textarea.focus();
+                    });
+                };
+            });
+            picker.onclick = e => e.stopPropagation();
+            // Use a more reliable approach for closing the picker
+            const closePicker = (event) => {
+                // Don't close if clicking inside the picker
+                if (picker.contains(event.target)) {
+                    return;
+                }
+                if (picker.style.display === 'block') {
+                    picker.style.display = 'none';
+                    document.removeEventListener('click', closePicker);
+                }
+            };
+            // Add a small delay to avoid immediate closure
+            setTimeout(() => {
+                document.addEventListener('click', closePicker);
+            }, 10);
+        }
+    });
+}
+
+function insertAtCursor(textarea, text) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = textarea.value.substring(0, start);
+    const after = textarea.value.substring(end);
+    textarea.value = before + text + after;
+    textarea.selectionStart = textarea.selectionEnd = start + text.length;
+}
+// === END Emoji Picker Support ===
+
+// === GIF Picker Support ===
+const GIPHY_API_KEY = 'GlVGY86kr3Wt31Vq8NLj5zQYJzbcFQG'; // Public beta key - you can replace with your own
+const GIPHY_BASE_URL = 'https://api.giphy.com/v1/gifs';
+
+// Mock GIF data for testing when API is unavailable
+const MOCK_GIFS = {
+    'dog': [
+        {
+            title: 'Happy Dog',
+            images: {
+                fixed_height_small: { url: 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif' },
+                original: { url: 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif' }
+            }
+        },
+        {
+            title: 'Cute Puppy',
+            images: {
+                fixed_height_small: { url: 'https://media.giphy.com/media/4Zo41lrcK4zU8/giphy.gif' },
+                original: { url: 'https://media.giphy.com/media/4Zo41lrcK4zU8/giphy.gif' }
+            }
+        }
+    ],
+    'cat': [
+        {
+            title: 'Sleepy Cat',
+            images: {
+                fixed_height_small: { url: 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif' },
+                original: { url: 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif' }
+            }
+        },
+        {
+            title: 'Playful Cat',
+            images: {
+                fixed_height_small: { url: 'https://media.giphy.com/media/4Zo41lrcK4zU8/giphy.gif' },
+                original: { url: 'https://media.giphy.com/media/4Zo41lrcK4zU8/giphy.gif' }
+            }
+        }
+    ],
+    'default': [
+        {
+            title: 'Funny GIF',
+            images: {
+                fixed_height_small: { url: 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif' },
+                original: { url: 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif' }
+            }
+        },
+        {
+            title: 'Cool GIF',
+            images: {
+                fixed_height_small: { url: 'https://media.giphy.com/media/4Zo41lrcK4zU8/giphy.gif' },
+                original: { url: 'https://media.giphy.com/media/4Zo41lrcK4zU8/giphy.gif' }
+            }
+        }
+    ]
+};
+
+async function searchGifs(query, limit = 20) {
+    try {
+        // Try the real API first
+        const response = await fetch(`${GIPHY_BASE_URL}/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(query)}&limit=${limit}&rating=g`);
+        
+        if (!response.ok) {
+            console.log('Giphy API unavailable, using mock data');
+            // Fallback to mock data
+            const mockData = MOCK_GIFS[query.toLowerCase()] || MOCK_GIFS['default'];
+            return mockData.slice(0, limit);
+        }
+        
+        const data = await response.json();
+        return data.data || [];
+    } catch (error) {
+        console.log('Giphy API error, using mock data:', error);
+        // Fallback to mock data
+        const mockData = MOCK_GIFS[query.toLowerCase()] || MOCK_GIFS['default'];
+        return mockData.slice(0, limit);
+    }
+}
+
+async function getTrendingGifs(limit = 20) {
+    try {
+        // Try the real API first
+        const response = await fetch(`${GIPHY_BASE_URL}/trending?api_key=${GIPHY_API_KEY}&limit=${limit}&rating=g`);
+        
+        if (!response.ok) {
+            console.log('Giphy API unavailable, using mock data');
+            // Fallback to mock data
+            return MOCK_GIFS['default'].slice(0, limit);
+        }
+        
+        const data = await response.json();
+        return data.data || [];
+    } catch (error) {
+        console.log('Giphy API error, using mock data:', error);
+        // Fallback to mock data
+        return MOCK_GIFS['default'].slice(0, limit);
+    }
+}
+
+function renderGifGrid(gifs, gridElem, onGifClick) {
+    gridElem.innerHTML = '';
+    
+    if (!gifs || gifs.length === 0) {
+        gridElem.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">No GIFs found. Try a different search term.</div>';
+        return;
+    }
+    
+    gifs.forEach(gif => {
+        const gifItem = document.createElement('div');
+        gifItem.className = 'gif-item';
+        gifItem.innerHTML = `
+            <img src="${gif.images.fixed_height_small.url}" 
+                 alt="${gif.title}" 
+                 data-gif-url="${gif.images.original.url}"
+                 data-gif-title="${gif.title}">
         `;
-        container.style.display = 'block';
-        
-        const saveBtn = container.querySelector('.save-edit-nested-reply-btn');
-        const cancelBtn = container.querySelector('.cancel-edit-nested-reply-btn');
-        
-        saveBtn.addEventListener('click', async () => {
-            const newText = container.querySelector('.edit-nested-reply-textarea').value;
-            const replyId = container.closest('.reply').getAttribute('data-reply-id');
-            const commentId = container.closest('.comment').getAttribute('data-comment-id');
-            await saveEditNestedReply(commentId, replyId, nestedReplyId, newText);
-        });
-        
-        cancelBtn.addEventListener('click', () => {
-            container.style.display = 'none';
-        });
-    }
+        gifItem.addEventListener('click', () => onGifClick(gif.images.original.url, gif.title));
+        gridElem.appendChild(gifItem);
+    });
 }
 
-// Save edit for nested reply
-async function saveEditNestedReply(commentId, replyId, nestedReplyId, newText) {
-    try {
-        const result = await chrome.storage.local.get(['isAuthenticated', 'user']);
-        if (!result.isAuthenticated) {
-            alert('Please sign in to edit nested replies');
-            return;
-        }
-
-        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}/nested-replies/${nestedReplyId}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                text: newText,
-                userEmail: result.user.email
-            })
+function initializeGifPicker() {
+    // Main comment input
+    const gifBtn = document.getElementById('comment-gif-btn');
+    const gifPicker = document.getElementById('comment-gif-picker');
+    const gifGrid = document.getElementById('comment-gif-grid');
+    const gifSearch = document.getElementById('comment-gif-search');
+    const gifSearchBtn = document.getElementById('comment-gif-search-btn');
+    const gifLoading = document.getElementById('comment-gif-loading');
+    const textarea = document.getElementById('comment-input');
+    
+    console.log('GIF picker elements:', { gifBtn, gifPicker, gifGrid, gifSearch, gifSearchBtn, gifLoading, textarea });
+    
+    if (gifBtn && gifPicker && gifGrid && textarea) {
+        // Load trending GIFs on first open
+        let isFirstOpen = true;
+        
+        gifBtn.addEventListener('click', async (e) => {
+            console.log('GIF button clicked!');
+            e.stopPropagation();
+            gifPicker.style.display = gifPicker.style.display === 'block' ? 'none' : 'block';
+            
+            if (isFirstOpen) {
+                gifLoading.style.display = 'block';
+                const trendingGifs = await getTrendingGifs();
+                renderGifGrid(trendingGifs, gifGrid, (gifUrl, gifTitle) => {
+                    insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
+                    gifPicker.style.display = 'none';
+                    textarea.focus();
+                });
+                gifLoading.style.display = 'none';
+                isFirstOpen = false;
+            }
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Failed to edit nested reply:', {
-                status: response.status,
-                statusText: response.statusText,
-                error: errorText
-            });
-            throw new Error(`Failed to edit nested reply: ${errorText}`);
-        }
-
-        const updatedComment = await response.json();
-        console.log('Nested reply edited successfully:', updatedComment);
-
-        await loadComments(currentSortBy);
-    } catch (error) {
-        console.error('Failed to edit nested reply:', error);
-        alert('Failed to edit nested reply. Please try again.');
-    }
-}
-
-// Delete nested reply
-async function deleteNestedReply(commentId, replyId, nestedReplyId) {
-    try {
-        const result = await chrome.storage.local.get(['isAuthenticated', 'user']);
-        if (!result.isAuthenticated) {
-            alert('Please sign in to delete nested replies');
-            return;
-        }
-
-        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}/nested-replies/${nestedReplyId}?userEmail=${encodeURIComponent(result.user.email)}`, {
-            method: 'DELETE'
+        
+        // Search functionality
+        gifSearchBtn.addEventListener('click', async () => {
+            const query = gifSearch.value.trim();
+            if (query) {
+                gifLoading.style.display = 'block';
+                const gifs = await searchGifs(query);
+                renderGifGrid(gifs, gifGrid, (gifUrl, gifTitle) => {
+                    insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
+                    gifPicker.style.display = 'none';
+                    textarea.focus();
+                });
+                gifLoading.style.display = 'none';
+            }
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Failed to delete nested reply:', {
-                status: response.status,
-                statusText: response.statusText,
-                error: errorText
-            });
-            throw new Error(`Failed to delete nested reply: ${errorText}`);
-        }
-
-        const updatedComment = await response.json();
-        console.log('Nested reply deleted successfully:', updatedComment);
-
-        await loadComments(currentSortBy);
-    } catch (error) {
-        console.error('Failed to delete nested reply:', error);
-        alert('Failed to delete nested reply. Please try again.');
+        
+        // Search on Enter key
+        gifSearch.addEventListener('keypress', async (e) => {
+            if (e.key === 'Enter') {
+                const query = gifSearch.value.trim();
+                if (query) {
+                    gifLoading.style.display = 'block';
+                    const gifs = await searchGifs(query);
+                    renderGifGrid(gifs, gifGrid, (gifUrl, gifTitle) => {
+                        insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
+                        gifPicker.style.display = 'none';
+                        textarea.focus();
+                    });
+                    gifLoading.style.display = 'none';
+                }
+            }
+        });
+        
+        gifPicker.addEventListener('click', e => e.stopPropagation());
+        document.addEventListener('click', () => gifPicker.style.display = 'none');
     }
+
+    // Delegate for reply and edit GIF pickers
+    document.body.addEventListener('click', async function(e) {
+        // Reply input
+        if (e.target.classList.contains('reply-gif-btn')) {
+            console.log('Reply GIF button clicked!');
+            const container = e.target.closest('.reply-input-container');
+            const picker = container.querySelector('.reply-gif-picker');
+            const grid = container.querySelector('.reply-gif-grid');
+            const search = container.querySelector('.gif-search-input');
+            const searchBtn = container.querySelector('.gif-search-btn');
+            const loading = container.querySelector('.reply-gif-loading');
+            const textarea = container.querySelector('.reply-textarea');
+            
+            picker.style.display = picker.style.display === 'block' ? 'none' : 'block';
+            
+            // Load trending GIFs on first open
+            if (picker.style.display === 'block' && grid.children.length === 0) {
+                loading.style.display = 'block';
+                const trendingGifs = await getTrendingGifs();
+                renderGifGrid(trendingGifs, grid, (gifUrl, gifTitle) => {
+                    insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
+                    picker.style.display = 'none';
+                    textarea.focus();
+                });
+                loading.style.display = 'none';
+            }
+            
+            picker.addEventListener('click', e => e.stopPropagation());
+            const closePicker = (event) => {
+                if (picker.contains(event.target)) {
+                    return;
+                }
+                if (picker.style.display === 'block') {
+                    picker.style.display = 'none';
+                    document.removeEventListener('click', closePicker);
+                }
+            };
+            setTimeout(() => {
+                document.addEventListener('click', closePicker);
+            }, 10);
+        }
+        
+        // Edit comment input
+        if (e.target.classList.contains('edit-gif-btn')) {
+            const container = e.target.closest('.edit-input-container');
+            const picker = container.querySelector('.edit-gif-picker');
+            const grid = container.querySelector('.edit-gif-grid');
+            const search = container.querySelector('.gif-search-input');
+            const searchBtn = container.querySelector('.gif-search-btn');
+            const loading = container.querySelector('.edit-gif-loading');
+            const textarea = container.querySelector('.edit-textarea');
+            
+            picker.style.display = picker.style.display === 'block' ? 'none' : 'block';
+            
+            // Load trending GIFs on first open
+            if (picker.style.display === 'block' && grid.children.length === 0) {
+                loading.style.display = 'block';
+                const trendingGifs = await getTrendingGifs();
+                renderGifGrid(trendingGifs, grid, (gifUrl, gifTitle) => {
+                    insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
+                    picker.style.display = 'none';
+                    textarea.focus();
+                });
+                loading.style.display = 'none';
+            }
+            
+            picker.addEventListener('click', e => e.stopPropagation());
+            const closePicker = (event) => {
+                if (picker.contains(event.target)) {
+                    return;
+                }
+                if (picker.style.display === 'block') {
+                    picker.style.display = 'none';
+                    document.removeEventListener('click', closePicker);
+                }
+            };
+            setTimeout(() => {
+                document.addEventListener('click', closePicker);
+            }, 10);
+        }
+        
+        // Edit reply input
+        if (e.target.classList.contains('edit-reply-gif-btn')) {
+            const container = e.target.closest('.edit-reply-input-container');
+            const picker = container.querySelector('.edit-reply-gif-picker');
+            const grid = container.querySelector('.edit-reply-gif-grid');
+            const search = container.querySelector('.gif-search-input');
+            const searchBtn = container.querySelector('.gif-search-btn');
+            const loading = container.querySelector('.edit-reply-gif-loading');
+            const textarea = container.querySelector('.edit-textarea');
+            
+            picker.style.display = picker.style.display === 'block' ? 'none' : 'block';
+            
+            // Load trending GIFs on first open
+            if (picker.style.display === 'block' && grid.children.length === 0) {
+                loading.style.display = 'block';
+                const trendingGifs = await getTrendingGifs();
+                renderGifGrid(trendingGifs, grid, (gifUrl, gifTitle) => {
+                    insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
+                    picker.style.display = 'none';
+                    textarea.focus();
+                });
+                loading.style.display = 'none';
+            }
+            
+            picker.addEventListener('click', e => e.stopPropagation());
+            const closePicker = (event) => {
+                if (picker.contains(event.target)) {
+                    return;
+                }
+                if (picker.style.display === 'block') {
+                    picker.style.display = 'none';
+                    document.removeEventListener('click', closePicker);
+                }
+            };
+            setTimeout(() => {
+                document.addEventListener('click', closePicker);
+            }, 10);
+        }
+    });
+    
+    // GIF Search functionality - separate event delegation
+    document.body.addEventListener('click', async function(e) {
+        // Handle GIF search button clicks
+        if (e.target.classList.contains('gif-search-btn')) {
+            const container = e.target.closest('.gif-picker, .reply-gif-picker, .edit-gif-picker, .edit-reply-gif-picker');
+            const search = container.querySelector('.gif-search-input');
+            const grid = container.querySelector('.gif-grid, .reply-gif-grid, .edit-gif-grid, .edit-reply-gif-grid');
+            const loading = container.querySelector('.gif-loading, .reply-gif-loading, .edit-gif-loading, .edit-reply-gif-loading');
+            const textarea = container.closest('.comment-input-container, .reply-input-container, .edit-input-container, .edit-reply-input-container').querySelector('textarea');
+            
+            const query = search.value.trim();
+            if (query) {
+                loading.style.display = 'block';
+                const gifs = await searchGifs(query);
+                renderGifGrid(gifs, grid, (gifUrl, gifTitle) => {
+                    insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
+                    container.style.display = 'none';
+                    textarea.focus();
+                });
+                loading.style.display = 'none';
+            }
+        }
+    });
+    
+    // GIF Search Enter key functionality
+    document.body.addEventListener('keypress', async function(e) {
+        if (e.target.classList.contains('gif-search-input') && e.key === 'Enter') {
+            const container = e.target.closest('.gif-picker, .reply-gif-picker, .edit-gif-picker, .edit-reply-gif-picker');
+            const search = e.target;
+            const grid = container.querySelector('.gif-grid, .reply-gif-grid, .edit-gif-grid, .edit-reply-gif-grid');
+            const loading = container.querySelector('.gif-loading, .reply-gif-loading, .edit-gif-loading, .edit-reply-gif-loading');
+            const textarea = container.closest('.comment-input-container, .reply-input-container, .edit-input-container, .edit-reply-input-container').querySelector('textarea');
+            
+            const query = search.value.trim();
+            if (query) {
+                loading.style.display = 'block';
+                const gifs = await searchGifs(query);
+                renderGifGrid(gifs, grid, (gifUrl, gifTitle) => {
+                    insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
+                    container.style.display = 'none';
+                    textarea.focus();
+                });
+                loading.style.display = 'none';
+            }
+        }
+    });
 }
+// === END GIF Picker Support ===
 
 // Initialize the panel
-createCommentsPanel(); 
+console.log('=== EXTENSION LOADED ===');
+console.log('Content script version:', Date.now());
+createCommentsPanel();
+
+// Listen for messages from popup to reopen panel
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'openCommentsPanel') {
+        console.log('Received request to open comments panel');
+        
+        // Check if panel already exists
+        const existingPanel = document.getElementById('webpage-comments-panel');
+        if (existingPanel) {
+            console.log('Panel already exists, showing it');
+            existingPanel.style.display = 'flex';
+            const floatingIcon = document.getElementById('comments-floating-icon');
+            if (floatingIcon) {
+                floatingIcon.style.display = 'none';
+            }
+        } else {
+            console.log('Panel does not exist, creating new one');
+            createCommentsPanel();
+        }
+        
+        sendResponse({ success: true });
+    }
+}); 
+
+// Add event listener after rendering comments to handle replies toggle
+function addRepliesToggleListeners() {
+    console.log('=== ADDING REPLIES TOGGLE LISTENERS ===');
+    const toggles = document.querySelectorAll('.replies-toggle');
+    console.log('Found toggle elements:', toggles.length);
+    
+    if (toggles.length === 0) {
+        console.error('❌ NO TOGGLE ELEMENTS FOUND!');
+        console.log('All elements with "replies" in class:', 
+            Array.from(document.querySelectorAll('[class*="replies"]')).map(el => ({
+                element: el,
+                className: el.className,
+                innerHTML: el.innerHTML.substring(0, 100)
+            }))
+        );
+        return;
+    }
+    
+    toggles.forEach((toggle, index) => {
+        console.log(`Toggle ${index}:`, {
+            element: toggle,
+            commentId: toggle.getAttribute('data-comment-id'),
+            innerHTML: toggle.innerHTML,
+            contentId: `replies-content-${toggle.getAttribute('data-comment-id')}`
+        });
+        
+        // Remove any existing event listeners
+        const newToggle = toggle.cloneNode(true);
+        toggle.parentNode.replaceChild(newToggle, toggle);
+        
+        newToggle.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('=== REPLIES TOGGLE CLICKED ===');
+            const commentId = this.getAttribute('data-comment-id');
+            const content = document.getElementById(`replies-content-${commentId}`);
+            
+            console.log('Toggle clicked:', {
+                commentId,
+                contentElement: content,
+                contentDisplay: content ? content.style.display : 'element not found',
+                currentInnerHTML: this.innerHTML,
+                contentComputedStyle: content ? window.getComputedStyle(content).display : 'element not found'
+            });
+            
+            if (content) {
+                const currentDisplay = content.style.display;
+                const computedDisplay = window.getComputedStyle(content).display;
+                
+                console.log('Display states:', {
+                    styleDisplay: currentDisplay,
+                    computedDisplay: computedDisplay,
+                    isHidden: currentDisplay === 'none' || currentDisplay === '' || computedDisplay === 'none'
+                });
+                
+                if (currentDisplay === 'none' || currentDisplay === '' || computedDisplay === 'none') {
+                    console.log('=== EXPANDING REPLIES ===');
+                    
+                    // Track expanded state
+                    expandedReplies.add(commentId);
+                    
+                    // Log the content before expanding
+                    console.log('Content before expanding:', {
+                        innerHTML: content.innerHTML,
+                        childNodes: content.childNodes.length,
+                        firstChild: content.firstChild,
+                        lastChild: content.lastChild
+                    });
+                    
+                    // Clear any existing indicators first
+                    const existingIndicators = content.querySelectorAll('div[data-replies-indicator="true"]');
+                    existingIndicators.forEach(indicator => indicator.remove());
+                    
+                    // Make the content visible with proper styling
+                    content.style.cssText = `
+                        display: block !important;
+                        visibility: visible !important;
+                        opacity: 1 !important;
+                        position: relative !important;
+                        z-index: 1000 !important;
+                        height: auto !important;
+                        max-height: 500px !important;
+                        min-height: 50px !important;
+                        overflow-y: auto !important;
+                        clip: auto !important;
+                        clip-path: none !important;
+                        background-color: #f8f9fa !important;
+                        border: 1px solid #e9ecef !important;
+                        border-radius: 4px !important;
+                        padding: 10px !important;
+                        margin-top: 5px !important;
+                        margin-bottom: 5px !important;
+                        width: 100% !important;
+                        box-sizing: border-box !important;
+                        color: #333 !important;
+                        font-weight: normal !important;
+                        font-size: 14px !important;
+                    `;
+                    
+                    this.innerHTML = this.innerHTML.replace('▼', '▲');
+                    
+                    // Force a reflow to ensure the display change takes effect
+                    content.offsetHeight;
+                    
+                    // Add a subtle indicator with a unique data attribute
+                    const indicator = document.createElement('div');
+                    indicator.setAttribute('data-replies-indicator', 'true');
+                    indicator.style.cssText = `
+                        background: #e3f2fd !important;
+                        color: #1976d2 !important;
+                        padding: 8px !important;
+                        margin: 8px 0 !important;
+                        font-weight: 500 !important;
+                        border: 1px solid #bbdefb !important;
+                        border-radius: 4px !important;
+                        font-size: 14px !important;
+                        text-align: center !important;
+                        position: relative !important;
+                        z-index: 10000 !important;
+                    `;
+                    indicator.textContent = '📋 Replies expanded';
+                    content.insertBefore(indicator, content.firstChild);
+                    
+                    console.log('After expanding:', {
+                        newDisplay: content.style.display,
+                        newComputedDisplay: window.getComputedStyle(content).display,
+                        newInnerHTML: this.innerHTML,
+                        contentVisible: content.offsetHeight > 0,
+                        contentHeight: content.offsetHeight,
+                        contentWidth: content.offsetWidth,
+                        contentTop: content.offsetTop,
+                        contentLeft: content.offsetLeft,
+                        contentRect: content.getBoundingClientRect(),
+                        parentDisplay: content.parentElement ? window.getComputedStyle(content.parentElement).display : 'no parent',
+                        parentVisibility: content.parentElement ? window.getComputedStyle(content.parentElement).visibility : 'no parent',
+                        contentHTML: content.innerHTML.substring(0, 500) + '...'
+                    });
+                } else {
+                    console.log('=== COLLAPSING REPLIES ===');
+                    
+                    // Track collapsed state
+                    expandedReplies.delete(commentId);
+                    
+                    // Remove all indicators using the data attribute
+                    const indicators = content.querySelectorAll('div[data-replies-indicator="true"]');
+                    indicators.forEach(indicator => indicator.remove());
+                    
+                    content.style.display = 'none';
+                    this.innerHTML = this.innerHTML.replace('▲', '▼');
+                    console.log('After collapsing:', {
+                        newDisplay: content.style.display,
+                        newComputedDisplay: window.getComputedStyle(content).display,
+                        newInnerHTML: this.innerHTML
+                    });
+                }
+            } else {
+                console.error('Content element not found for commentId:', commentId);
+                console.log('Available elements with similar IDs:', 
+                    Array.from(document.querySelectorAll('[id*="replies-content"]')).map(el => el.id)
+                );
+            }
+        });
+    });
+}
+
+// Function to restore expanded replies state
+function restoreExpandedRepliesState() {
+    console.log('=== RESTORING EXPANDED REPLIES STATE ===');
+    console.log('Expanded replies:', Array.from(expandedReplies));
+    
+    expandedReplies.forEach(commentId => {
+        const toggle = document.querySelector(`.replies-toggle[data-comment-id="${commentId}"]`);
+        const content = document.getElementById(`replies-content-${commentId}`);
+        
+        if (toggle && content) {
+            console.log(`Restoring expanded state for comment: ${commentId}`);
+            
+            // Expand the replies
+            content.style.cssText = `
+                display: block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                position: relative !important;
+                z-index: 1000 !important;
+                height: auto !important;
+                max-height: 500px !important;
+                min-height: 50px !important;
+                overflow-y: auto !important;
+                clip: auto !important;
+                clip-path: none !important;
+                background-color: #f8f9fa !important;
+                border: 1px solid #e9ecef !important;
+                border-radius: 4px !important;
+                padding: 10px !important;
+                margin-top: 5px !important;
+                margin-bottom: 5px !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+                color: #333 !important;
+                font-weight: normal !important;
+                font-size: 14px !important;
+            `;
+            
+            toggle.innerHTML = toggle.innerHTML.replace('▼', '▲');
+            
+            // Add indicator
+            const indicator = document.createElement('div');
+            indicator.setAttribute('data-replies-indicator', 'true');
+            indicator.style.cssText = `
+                background: #e3f2fd !important;
+                color: #1976d2 !important;
+                padding: 8px !important;
+                margin: 8px 0 !important;
+                font-weight: 500 !important;
+                border: 1px solid #bbdefb !important;
+                border-radius: 4px !important;
+                font-size: 14px !important;
+                text-align: center !important;
+                position: relative !important;
+                z-index: 10000 !important;
+            `;
+            indicator.textContent = '📋 Replies expanded';
+            content.insertBefore(indicator, content.firstChild);
+        }
+    });
+}
+
+// After rendering comments, call addRepliesToggleListeners
+// In loadComments, after commentsList.innerHTML = renderComments(...), add:
+// addRepliesToggleListeners();
