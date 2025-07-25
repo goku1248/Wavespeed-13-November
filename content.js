@@ -1694,14 +1694,28 @@ function initializeEmojiPicker() {
             } else {
                 // Position the emoji picker relative to the button
                 const buttonRect = emojiBtn.getBoundingClientRect();
-                emojiPicker.style.left = buttonRect.left + 'px';
+                const pickerWidth = 280; // Width of the emoji picker
+                const viewportWidth = window.innerWidth;
+                
+                // Calculate left position to keep picker within viewport
+                let leftPos = buttonRect.left;
+                if (leftPos + pickerWidth > viewportWidth) {
+                    leftPos = viewportWidth - pickerWidth - 10; // 10px margin from edge
+                }
+                if (leftPos < 10) {
+                    leftPos = 10; // 10px margin from left edge
+                }
+                
+                emojiPicker.style.left = leftPos + 'px';
                 emojiPicker.style.top = (buttonRect.bottom + 4) + 'px';
                 emojiPicker.style.display = 'block';
                 
                 console.log('Button position:', buttonRect);
                 console.log('Emoji picker position:', {
                     left: emojiPicker.style.left,
-                    top: emojiPicker.style.top
+                    top: emojiPicker.style.top,
+                    viewportWidth,
+                    pickerWidth
                 });
             }
             
@@ -1771,7 +1785,19 @@ function initializeEmojiPicker() {
                 } else {
                     // Position the emoji picker relative to the button
                     const buttonRect = e.target.getBoundingClientRect();
-                    picker.style.left = buttonRect.left + 'px';
+                    const pickerWidth = 280; // Width of the emoji picker
+                    const viewportWidth = window.innerWidth;
+                    
+                    // Calculate left position to keep picker within viewport
+                    let leftPos = buttonRect.left;
+                    if (leftPos + pickerWidth > viewportWidth) {
+                        leftPos = viewportWidth - pickerWidth - 10; // 10px margin from edge
+                    }
+                    if (leftPos < 10) {
+                        leftPos = 10; // 10px margin from left edge
+                    }
+                    
+                    picker.style.left = leftPos + 'px';
                     picker.style.top = (buttonRect.bottom + 4) + 'px';
                     picker.style.display = 'block';
                 }
@@ -1830,7 +1856,19 @@ function initializeEmojiPicker() {
                 } else {
                     // Position the emoji picker relative to the button
                     const buttonRect = e.target.getBoundingClientRect();
-                    picker.style.left = buttonRect.left + 'px';
+                    const pickerWidth = 280; // Width of the emoji picker
+                    const viewportWidth = window.innerWidth;
+                    
+                    // Calculate left position to keep picker within viewport
+                    let leftPos = buttonRect.left;
+                    if (leftPos + pickerWidth > viewportWidth) {
+                        leftPos = viewportWidth - pickerWidth - 10; // 10px margin from edge
+                    }
+                    if (leftPos < 10) {
+                        leftPos = 10; // 10px margin from left edge
+                    }
+                    
+                    picker.style.left = leftPos + 'px';
                     picker.style.top = (buttonRect.bottom + 4) + 'px';
                     picker.style.display = 'block';
                 }
@@ -1889,7 +1927,19 @@ function initializeEmojiPicker() {
                 } else {
                     // Position the emoji picker relative to the button
                     const buttonRect = e.target.getBoundingClientRect();
-                    picker.style.left = buttonRect.left + 'px';
+                    const pickerWidth = 280; // Width of the emoji picker
+                    const viewportWidth = window.innerWidth;
+                    
+                    // Calculate left position to keep picker within viewport
+                    let leftPos = buttonRect.left;
+                    if (leftPos + pickerWidth > viewportWidth) {
+                        leftPos = viewportWidth - pickerWidth - 10; // 10px margin from edge
+                    }
+                    if (leftPos < 10) {
+                        leftPos = 10; // 10px margin from left edge
+                    }
+                    
+                    picker.style.left = leftPos + 'px';
                     picker.style.top = (buttonRect.bottom + 4) + 'px';
                     picker.style.display = 'block';
                 }
