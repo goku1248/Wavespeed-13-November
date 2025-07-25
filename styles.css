@@ -712,11 +712,20 @@
     overflow: hidden;
     display: none;
     margin-top: 4px;
+    /* Ensure it's not clipped by parent containers */
+    transform: translateZ(0);
+    will-change: transform;
 }
 
 /* Ensure emoji picker is visible when displayed */
 .emoji-picker[style*="display: block"] {
     display: block !important;
+}
+
+/* Force emoji picker to be above everything */
+.emoji-picker {
+    z-index: 2147483647 !important;
+    position: fixed !important;
 }
 
 .emoji-categories {
