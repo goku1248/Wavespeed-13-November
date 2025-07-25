@@ -38,28 +38,28 @@ async function createCommentsPanel() {
                     <button class="emoji-btn" id="comment-emoji-btn">😊</button>
                     <button class="gif-btn" id="comment-gif-btn">🎬</button>
                 </div>
-                <div class="emoji-picker" id="comment-emoji-picker" style="display: none;">
-                    <div class="emoji-categories">
-                        <button class="emoji-category active" data-category="smileys">😊</button>
-                        <button class="emoji-category" data-category="animals">🐶</button>
-                        <button class="emoji-category" data-category="food">🍕</button>
-                        <button class="emoji-category" data-category="activities">⚽</button>
-                        <button class="emoji-category" data-category="travel">🚗</button>
-                        <button class="emoji-category" data-category="objects">💡</button>
-                        <button class="emoji-category" data-category="symbols">❤️</button>
-                        <button class="emoji-category" data-category="flags">🏁</button>
-                    </div>
-                    <div class="emoji-grid" id="comment-emoji-grid"></div>
-                </div>
-                <div class="gif-picker" id="comment-gif-picker" style="display: none;">
-                    <div class="gif-search-container">
-                        <input type="text" class="gif-search-input" placeholder="Search GIFs..." id="comment-gif-search">
-                        <button class="gif-search-btn" id="comment-gif-search-btn">🔍</button>
-                    </div>
-                    <div class="gif-grid" id="comment-gif-grid"></div>
-                    <div class="gif-loading" id="comment-gif-loading" style="display: none;">Loading...</div>
-                </div>
                 <button id="submit-comment">Post</button>
+            </div>
+            <div class="emoji-picker" id="comment-emoji-picker" style="display: none;">
+                <div class="emoji-categories">
+                    <button class="emoji-category active" data-category="smileys">😊</button>
+                    <button class="emoji-category" data-category="animals">🐶</button>
+                    <button class="emoji-category" data-category="food">🍕</button>
+                    <button class="emoji-category" data-category="activities">⚽</button>
+                    <button class="emoji-category" data-category="travel">🚗</button>
+                    <button class="emoji-category" data-category="objects">💡</button>
+                    <button class="emoji-category" data-category="symbols">❤️</button>
+                    <button class="emoji-category" data-category="flags">🏁</button>
+                </div>
+                <div class="emoji-grid" id="comment-emoji-grid"></div>
+            </div>
+            <div class="gif-picker" id="comment-gif-picker" style="display: none;">
+                <div class="gif-search-container">
+                    <input type="text" class="gif-search-input" placeholder="Search GIFs..." id="comment-gif-search">
+                    <button class="gif-search-btn" id="comment-gif-search-btn">🔍</button>
+                </div>
+                <div class="gif-grid" id="comment-gif-grid"></div>
+                <div class="gif-loading" id="comment-gif-loading" style="display: none;">Loading...</div>
             </div>
         </div>
         <div id="comments-bottom-resizer"></div>
@@ -1676,18 +1676,28 @@ function initializeEmojiPicker() {
     const emojiGrid = document.getElementById('comment-emoji-grid');
     const textarea = document.getElementById('comment-input');
     
-    console.log('Main emoji picker elements:', { emojiBtn, emojiPicker, emojiGrid, textarea });
+    console.log('Main emoji picker elements:', { 
+        emojiBtn: emojiBtn ? 'Found' : 'NOT FOUND', 
+        emojiPicker: emojiPicker ? 'Found' : 'NOT FOUND', 
+        emojiGrid: emojiGrid ? 'Found' : 'NOT FOUND', 
+        textarea: textarea ? 'Found' : 'NOT FOUND' 
+    });
     
     if (emojiBtn && emojiPicker && emojiGrid && textarea) {
+        console.log('All elements found, setting up event listener');
         let currentCategory = 'smileys';
         
         // Initialize the main emoji picker
         emojiBtn.addEventListener('click', (e) => {
             console.log('Main emoji button clicked!');
+            console.log('Event target:', e.target);
+            console.log('Button element:', emojiBtn);
             e.stopPropagation();
             const isVisible = emojiPicker.style.display === 'block';
             console.log('Current emoji picker display:', emojiPicker.style.display);
             console.log('Is visible:', isVisible);
+            console.log('Emoji picker element:', emojiPicker);
+            console.log('Emoji picker HTML:', emojiPicker.outerHTML);
             
             if (isVisible) {
                 emojiPicker.style.display = 'none';
@@ -1716,6 +1726,12 @@ function initializeEmojiPicker() {
                     top: emojiPicker.style.top,
                     viewportWidth,
                     pickerWidth
+                });
+                console.log('Emoji picker computed styles:', {
+                    display: window.getComputedStyle(emojiPicker).display,
+                    position: window.getComputedStyle(emojiPicker).position,
+                    zIndex: window.getComputedStyle(emojiPicker).zIndex,
+                    visibility: window.getComputedStyle(emojiPicker).visibility
                 });
             }
             
@@ -1763,6 +1779,19 @@ function initializeEmojiPicker() {
             emojiPicker.style.display = 'none';
             textarea.focus();
         });
+        
+        // Test: Force emoji picker to be visible for debugging
+        console.log('Testing emoji picker visibility...');
+        emojiPicker.style.display = 'block';
+        emojiPicker.style.left = '100px';
+        emojiPicker.style.top = '100px';
+        emojiPicker.style.backgroundColor = 'red'; // Make it very visible
+        console.log('Emoji picker should now be visible at 100,100 with red background');
+        setTimeout(() => {
+            emojiPicker.style.display = 'none';
+            emojiPicker.style.backgroundColor = '';
+            console.log('Test complete - emoji picker hidden again');
+        }, 3000);
     }
 
     // Global event delegation for all other emoji pickers
