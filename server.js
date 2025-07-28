@@ -18,14 +18,16 @@ let isConnected = false;
 mongoose.connect(MONGODB_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
-    serverSelectionTimeoutMS: 5000,
+    serverSelectionTimeoutMS: 10000, // Increased from 5000
     socketTimeoutMS: 45000,
     bufferCommands: false,
     maxPoolSize: 10,
     minPoolSize: 1,
     maxIdleTimeMS: 30000,
     retryWrites: true,
-    w: 'majority'
+    w: 'majority',
+    connectTimeoutMS: 10000, // Added connection timeout
+    heartbeatFrequencyMS: 10000 // Added heartbeat frequency
 }).then(() => {
     console.log('Connected to MongoDB Atlas');
     isConnected = true;
@@ -276,8 +278,29 @@ function countTotalReplies(replies) {
 app.get('/api/comments', async (req, res) => {
     try {
         if (!isConnected) {
-            console.error('Database not connected');
-            return res.status(500).json({ error: 'Database connection error' });
+            console.error('Database not connected - attempting to reconnect...');
+            // Try to reconnect
+            try {
+                await mongoose.connect(MONGODB_URI, {
+                    useNewUrlParser: true,
+                    useUnifiedTopology: true,
+                    serverSelectionTimeoutMS: 10000,
+                    socketTimeoutMS: 45000,
+                    bufferCommands: false,
+                    maxPoolSize: 10,
+                    minPoolSize: 1,
+                    maxIdleTimeMS: 30000,
+                    retryWrites: true,
+                    w: 'majority',
+                    connectTimeoutMS: 10000,
+                    heartbeatFrequencyMS: 10000
+                });
+                isConnected = true;
+                console.log('Reconnected to MongoDB Atlas');
+            } catch (reconnectError) {
+                console.error('Failed to reconnect to MongoDB:', reconnectError);
+                return res.status(500).json({ error: 'Database connection error' });
+            }
         }
 
         const { url } = req.query;

@@ -496,7 +496,7 @@ function createComment({text, user, timestamp}) {
     };
 }
 
-const API_BASE_URL = 'http://localhost:3002/api';
+const API_BASE_URL = 'http://localhost:3003/api';
 
 // Add this at the top of the file with other global variables
 let currentSortBy = 'newest';
