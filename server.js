@@ -29,6 +29,8 @@ mongoose.connect(MONGODB_URI, {
 }).then(() => {
     console.log('Connected to MongoDB Atlas');
     isConnected = true;
+    // Run the one-time fix after successful connection
+    fixExistingReplies();
 }).catch((error) => {
     console.error('MongoDB connection error:', error);
     isConnected = false;
@@ -78,7 +80,9 @@ mongoose.connection.on('error', (error) => {
 app.get('/health', (req, res) => {
     res.status(200).json({ 
         status: 'ok',
-        database: isConnected ? 'connected' : 'disconnected'
+        database: isConnected ? 'connected' : 'disconnected',
+        timestamp: new Date().toISOString(),
+        port: PORT
     });
 });
 
@@ -1000,5 +1004,5 @@ console.log('Using PORT:', PORT);
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
     // Run the one-time fix after server starts
-    fixExistingReplies();
+    // fixExistingReplies(); // This line is removed as per the edit hint.
 }); 
