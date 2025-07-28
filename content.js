@@ -1401,22 +1401,14 @@ function renderComments(comments, userEmail, currentUrl) {
                 </div>
                 <div class="comment-text" id="comment-text-${comment._id}">${commentTextWithImages}</div>
                 <div class="comment-actions">
-                    <button class="like-btn ${isLiked ? 'liked' : ''}" data-comment-id="${comment._id}">
-                        👍 ${comment.likes || 0}
-                    </button>
-                    <button class="dislike-btn ${isDisliked ? 'disliked' : ''}" data-comment-id="${comment._id}">
-                        👎 ${comment.dislikes || 0}
-                    </button>
-                    <button class="trust-btn ${isTrusted ? 'trusted' : ''}" data-comment-id="${comment._id}">
-                        ✅ ${comment.trusts || 0}
-                    </button>
-                    <button class="distrust-btn ${isDistrusted ? 'distrusted' : ''}" data-comment-id="${comment._id}">
-                        ❌ ${comment.distrusts || 0}
-                    </button>
-                    <button class="reply-btn" data-comment-id="${comment._id}">Reply</button>
+                    <button class="action-btn reply-btn" data-comment-id="${comment._id}">💬</button>
+                    <button class="action-btn like-btn ${comment.likes.includes(userEmail) ? 'liked' : ''}" data-comment-id="${comment._id}">👍</button>
+                    <button class="action-btn dislike-btn ${comment.dislikes.includes(userEmail) ? 'disliked' : ''}" data-comment-id="${comment._id}">👎</button>
+                    <button class="action-btn trust-btn ${comment.trust.includes(userEmail) ? 'trusted' : ''}" data-comment-id="${comment._id}">✅</button>
+                    <button class="action-btn distrust-btn ${comment.distrust.includes(userEmail) ? 'distrusted' : ''}" data-comment-id="${comment._id}">❌</button>
                     ${comment.user?.email === userEmail ? `
-                        <button class="edit-btn" data-comment-id="${comment._id}">Edit</button>
-                        <button class="delete-btn" data-comment-id="${comment._id}">Delete</button>
+                        <button class="action-btn edit-btn" data-comment-id="${comment._id}">✏️</button>
+                        <button class="action-btn delete-btn" data-comment-id="${comment._id}">🗑️</button>
                     ` : ''}
                 </div>
                 <div class="edit-input-container" id="edit-input-${comment._id}" style="display:none;"></div>
@@ -1493,22 +1485,13 @@ function renderReplies(replies, level = 1, commentId, userEmail) {
                 </div>
                 <div class="reply-text">${replyTextWithImages}</div>
                 <div class="reply-actions">
-                    <button class="like-btn ${isReplyLiked ? 'liked' : ''}" data-reply-id="${reply._id}">
-                        👍 ${reply.likes || 0}
-                    </button>
-                    <button class="dislike-btn ${isReplyDisliked ? 'disliked' : ''}" data-reply-id="${reply._id}">
-                        👎 ${reply.dislikes || 0}
-                    </button>
-                    <button class="trust-btn ${isReplyTrusted ? 'trusted' : ''}" data-reply-id="${reply._id}">
-                        ✅ ${reply.trusts || 0}
-                    </button>
-                    <button class="distrust-btn ${isReplyDistrusted ? 'distrusted' : ''}" data-reply-id="${reply._id}">
-                        ❌ ${reply.distrusts || 0}
-                    </button>
-                    <button class="reply-btn" data-comment-id="${commentId}" ${reply._id ? `data-parent-reply-id="${reply._id}"` : ''}>Reply</button>
+                    <button class="action-btn like-reply-btn ${reply.likes.includes(userEmail) ? 'liked' : ''}" data-reply-id="${reply._id}" data-comment-id="${comment._id}">👍</button>
+                    <button class="action-btn dislike-reply-btn ${reply.dislikes.includes(userEmail) ? 'disliked' : ''}" data-reply-id="${reply._id}" data-comment-id="${comment._id}">👎</button>
+                    <button class="action-btn trust-reply-btn ${reply.trust.includes(userEmail) ? 'trusted' : ''}" data-reply-id="${reply._id}" data-comment-id="${comment._id}">✅</button>
+                    <button class="action-btn distrust-reply-btn ${reply.distrust.includes(userEmail) ? 'distrusted' : ''}" data-reply-id="${reply._id}" data-comment-id="${comment._id}">❌</button>
                     ${reply.user?.email === userEmail ? `
-                        <button class="edit-reply-btn" data-reply-id="${reply._id}">Edit</button>
-                        <button class="delete-reply-btn" data-reply-id="${reply._id}">Delete</button>
+                        <button class="action-btn edit-reply-btn" data-reply-id="${reply._id}" data-comment-id="${comment._id}">✏️</button>
+                        <button class="action-btn delete-reply-btn" data-reply-id="${reply._id}" data-comment-id="${comment._id}">🗑️</button>
                     ` : ''}
                 </div>
                 <div class="reply-input-container" id="reply-input-${reply._id}" style="display:none;"></div>

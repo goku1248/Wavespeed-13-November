@@ -197,80 +197,7 @@
     margin-top: 8px;
 }
 
-.like-btn, .dislike-btn, .trust-btn, .distrust-btn {
-    background: #f1f3f4;
-    border: none;
-    border-radius: 12px;
-    padding: 8px 16px;
-    cursor: pointer;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    transition: background 0.2s;
-}
 
-.like-btn:disabled, .dislike-btn:disabled, .trust-btn:disabled, .distrust-btn:disabled {
-    background: #e9ecef;
-    color: #adb5bd;
-    cursor: not-allowed;
-}
-
-.like-btn:not(:disabled):hover {
-    background: #d1e7dd;
-}
-
-.dislike-btn:not(:disabled):hover {
-    background: #f8d7da;
-}
-
-.trust-btn:not(:disabled):hover {
-    background: #d1e7dd;
-}
-
-.distrust-btn:not(:disabled):hover {
-    background: #f8d7da;
-}
-
-.like-btn.liked {
-    background-color: #4CAF50;
-    color: white;
-    border-color: #4CAF50;
-}
-
-.like-btn.liked:hover {
-    background-color: #45a049;
-}
-
-.dislike-btn.disliked {
-    background-color: #f44336;
-    color: white;
-    border-color: #f44336;
-}
-
-.dislike-btn.disliked:hover {
-    background-color: #da190b;
-}
-
-.trust-btn.trusted {
-    background-color: #28a745;
-    color: white;
-    border-color: #28a745;
-}
-
-.trust-btn.trusted:hover {
-    background-color: #218838;
-}
-
-.distrust-btn.distrusted {
-    background-color: #dc3545;
-    color: white;
-    border-color: #dc3545;
-}
-
-.distrust-btn.distrusted:hover {
-    background-color: #c82333;
-}
 
 /* Style for individual reply items */
 .reply {
@@ -394,21 +321,7 @@
     background: #0056b3;
 }
 
-.reply-btn {
-    background: #007bff;
-    color: white;
-    border: none;
-    border-radius: 12px;
-    padding: 8px 16px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    transition: background-color 0.2s;
-}
 
-.reply-btn:hover {
-    background: #0056b3;
-}
 
 .cancel-reply-btn {
     background: #6c757d;
@@ -427,28 +340,7 @@
     background: #495057;
 }
 
-.edit-reply-btn, .delete-reply-btn {
-    background: #f1f3f4;
-    border: none;
-    border-radius: 12px;
-    padding: 8px 16px;
-    cursor: pointer;
-    font-size: 14px;
-    margin-left: 4px;
-    transition: background 0.2s;
-}
 
-.edit-reply-btn:hover {
-    background: #e2e3e5;
-}
-
-.delete-reply-btn {
-    color: #dc3545;
-}
-
-.delete-reply-btn:hover {
-    background: #f8d7da;
-}
 
 .save-edit-reply-btn, .cancel-edit-reply-btn {
     background: #007bff;
@@ -476,28 +368,7 @@
     background: #495057;
 }
 
-.edit-btn, .delete-btn {
-    background: #f1f3f4;
-    border: none;
-    border-radius: 12px;
-    padding: 8px 16px;
-    cursor: pointer;
-    font-size: 14px;
-    margin-left: 4px;
-    transition: background 0.2s;
-}
 
-.edit-btn:hover {
-    background: #e2e3e5;
-}
-
-.delete-btn {
-    color: #dc3545;
-}
-
-.delete-btn:hover {
-    background: #f8d7da;
-}
 
 .edit-input-container {
     margin-top: 8px;
@@ -1072,4 +943,58 @@
     right: 0 !important;
     bottom: 0 !important;
     z-index: 2147483647 !important;
+}
+
+/* Action buttons styling */
+.action-btn {
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin: 2px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    min-width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.action-btn:hover {
+    background-color: #f0f0f0;
+    border-color: #ccc;
+}
+
+.action-btn.liked {
+    background-color: #e3f2fd;
+    border-color: #2196f3;
+    color: #2196f3;
+}
+
+.action-btn.disliked {
+    background-color: #ffebee;
+    border-color: #f44336;
+    color: #f44336;
+}
+
+.action-btn.trusted {
+    background-color: #e8f5e8;
+    border-color: #4caf50;
+    color: #4caf50;
+}
+
+.action-btn.distrusted {
+    background-color: #ffebee;
+    border-color: #f44336;
+    color: #f44336;
+}
+
+/* Comment actions container */
+.comment-actions, .reply-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 8px;
+    flex-wrap: wrap;
 }
