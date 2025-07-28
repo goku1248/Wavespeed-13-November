@@ -1817,21 +1817,47 @@ function initializeEmojiPicker() {
                 } else {
                     // Position the emoji picker relative to the button
                     const buttonRect = e.target.getBoundingClientRect();
-                    const pickerWidth = 280; // Width of the emoji picker
                     const viewportWidth = window.innerWidth;
+                    const viewportHeight = window.innerHeight;
+                    const pickerWidth = 280;
+                    const pickerHeight = 300;
                     
                     // Calculate left position to keep picker within viewport
                     let leftPos = buttonRect.left;
-                    if (leftPos + pickerWidth > viewportWidth) {
-                        leftPos = viewportWidth - pickerWidth - 10; // 10px margin from edge
+                    if (leftPos + pickerWidth > viewportWidth - 10) {
+                        leftPos = viewportWidth - pickerWidth - 10;
                     }
                     if (leftPos < 10) {
-                        leftPos = 10; // 10px margin from left edge
+                        leftPos = 10;
                     }
                     
-                    picker.style.left = leftPos + 'px';
-                    picker.style.top = (buttonRect.bottom + 4) + 'px';
+                    // Calculate top position
+                    let topPos = buttonRect.bottom + 5;
+                    
+                    // If picker would go below viewport, position it above the button
+                    if (topPos + pickerHeight > viewportHeight - 10) {
+                        topPos = buttonRect.top - pickerHeight - 5;
+                    }
+                    
+                    // Ensure minimum top position
+                    if (topPos < 10) {
+                        topPos = 10;
+                    }
+                    
+                    picker.style.left = `${leftPos}px`;
+                    picker.style.top = `${topPos}px`;
                     picker.style.display = 'block';
+                    
+                    console.log('Reply emoji picker position:', {
+                        left: `${leftPos}px`,
+                        top: `${topPos}px`,
+                        viewportWidth,
+                        viewportHeight,
+                        pickerWidth,
+                        pickerHeight,
+                        buttonLeft: buttonRect.left,
+                        buttonBottom: buttonRect.bottom
+                    });
                 }
                 
                 if (!isVisible) {
@@ -1888,21 +1914,47 @@ function initializeEmojiPicker() {
                 } else {
                     // Position the emoji picker relative to the button
                     const buttonRect = e.target.getBoundingClientRect();
-                    const pickerWidth = 280; // Width of the emoji picker
                     const viewportWidth = window.innerWidth;
+                    const viewportHeight = window.innerHeight;
+                    const pickerWidth = 280;
+                    const pickerHeight = 300;
                     
                     // Calculate left position to keep picker within viewport
                     let leftPos = buttonRect.left;
-                    if (leftPos + pickerWidth > viewportWidth) {
-                        leftPos = viewportWidth - pickerWidth - 10; // 10px margin from edge
+                    if (leftPos + pickerWidth > viewportWidth - 10) {
+                        leftPos = viewportWidth - pickerWidth - 10;
                     }
                     if (leftPos < 10) {
-                        leftPos = 10; // 10px margin from left edge
+                        leftPos = 10;
                     }
                     
-                    picker.style.left = leftPos + 'px';
-                    picker.style.top = (buttonRect.bottom + 4) + 'px';
+                    // Calculate top position
+                    let topPos = buttonRect.bottom + 5;
+                    
+                    // If picker would go below viewport, position it above the button
+                    if (topPos + pickerHeight > viewportHeight - 10) {
+                        topPos = buttonRect.top - pickerHeight - 5;
+                    }
+                    
+                    // Ensure minimum top position
+                    if (topPos < 10) {
+                        topPos = 10;
+                    }
+                    
+                    picker.style.left = `${leftPos}px`;
+                    picker.style.top = `${topPos}px`;
                     picker.style.display = 'block';
+                    
+                    console.log('Edit comment emoji picker position:', {
+                        left: `${leftPos}px`,
+                        top: `${topPos}px`,
+                        viewportWidth,
+                        viewportHeight,
+                        pickerWidth,
+                        pickerHeight,
+                        buttonLeft: buttonRect.left,
+                        buttonBottom: buttonRect.bottom
+                    });
                 }
                 
                 if (!isVisible) {
@@ -1959,21 +2011,47 @@ function initializeEmojiPicker() {
                 } else {
                     // Position the emoji picker relative to the button
                     const buttonRect = e.target.getBoundingClientRect();
-                    const pickerWidth = 280; // Width of the emoji picker
                     const viewportWidth = window.innerWidth;
+                    const viewportHeight = window.innerHeight;
+                    const pickerWidth = 280;
+                    const pickerHeight = 300;
                     
                     // Calculate left position to keep picker within viewport
                     let leftPos = buttonRect.left;
-                    if (leftPos + pickerWidth > viewportWidth) {
-                        leftPos = viewportWidth - pickerWidth - 10; // 10px margin from edge
+                    if (leftPos + pickerWidth > viewportWidth - 10) {
+                        leftPos = viewportWidth - pickerWidth - 10;
                     }
                     if (leftPos < 10) {
-                        leftPos = 10; // 10px margin from left edge
+                        leftPos = 10;
                     }
                     
-                    picker.style.left = leftPos + 'px';
-                    picker.style.top = (buttonRect.bottom + 4) + 'px';
+                    // Calculate top position
+                    let topPos = buttonRect.bottom + 5;
+                    
+                    // If picker would go below viewport, position it above the button
+                    if (topPos + pickerHeight > viewportHeight - 10) {
+                        topPos = buttonRect.top - pickerHeight - 5;
+                    }
+                    
+                    // Ensure minimum top position
+                    if (topPos < 10) {
+                        topPos = 10;
+                    }
+                    
+                    picker.style.left = `${leftPos}px`;
+                    picker.style.top = `${topPos}px`;
                     picker.style.display = 'block';
+                    
+                    console.log('Edit reply emoji picker position:', {
+                        left: `${leftPos}px`,
+                        top: `${topPos}px`,
+                        viewportWidth,
+                        viewportHeight,
+                        pickerWidth,
+                        pickerHeight,
+                        buttonLeft: buttonRect.left,
+                        buttonBottom: buttonRect.bottom
+                    });
                 }
                 
                 if (!isVisible) {
