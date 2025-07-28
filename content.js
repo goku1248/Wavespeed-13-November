@@ -1718,35 +1718,46 @@ function initializeEmojiPicker() {
             } else {
                 // Position the emoji picker relative to the button
                 const buttonRect = emojiBtn.getBoundingClientRect();
-                const pickerWidth = 280; // Width of the emoji picker
                 const viewportWidth = window.innerWidth;
+                const pickerWidth = 280;
                 
                 // Calculate left position to keep picker within viewport
                 let leftPos = buttonRect.left;
-                if (leftPos + pickerWidth > viewportWidth) {
-                    leftPos = viewportWidth - pickerWidth - 10; // 10px margin from edge
+                if (leftPos + pickerWidth > viewportWidth - 10) {
+                    leftPos = viewportWidth - pickerWidth - 10;
                 }
                 if (leftPos < 10) {
-                    leftPos = 10; // 10px margin from left edge
+                    leftPos = 10;
                 }
                 
-                emojiPicker.style.left = leftPos + 'px';
-                emojiPicker.style.top = (buttonRect.bottom + 4) + 'px';
-                emojiPicker.style.display = 'block';
+                // Calculate top position
+                let topPos = buttonRect.bottom + 5;
+                const viewportHeight = window.innerHeight;
+                const pickerHeight = 300;
                 
-                console.log('Button position:', buttonRect);
+                // If picker would go below viewport, position it above the button
+                if (topPos + pickerHeight > viewportHeight - 10) {
+                    topPos = buttonRect.top - pickerHeight - 5;
+                }
+                
+                // Ensure minimum top position
+                if (topPos < 10) {
+                    topPos = 10;
+                }
+                
+                emojiPicker.style.left = `${leftPos}px`;
+                emojiPicker.style.top = `${topPos}px`;
+                
                 console.log('Emoji picker position:', {
-                    left: emojiPicker.style.left,
-                    top: emojiPicker.style.top,
+                    left: `${leftPos}px`,
+                    top: `${topPos}px`,
                     viewportWidth,
-                    pickerWidth
+                    pickerWidth,
+                    buttonLeft: buttonRect.left,
+                    buttonBottom: buttonRect.bottom
                 });
-                console.log('Emoji picker computed styles:', {
-                    display: window.getComputedStyle(emojiPicker).display,
-                    position: window.getComputedStyle(emojiPicker).position,
-                    zIndex: window.getComputedStyle(emojiPicker).zIndex,
-                    visibility: window.getComputedStyle(emojiPicker).visibility
-                });
+                
+                emojiPicker.style.display = 'block';
             }
             
             console.log('New emoji picker display:', emojiPicker.style.display);
@@ -1792,6 +1803,14 @@ function initializeEmojiPicker() {
             insertAtCursor(textarea, emoji);
             emojiPicker.style.display = 'none';
             textarea.focus();
+        });
+        
+        // Add click outside handler to close emoji picker
+        document.addEventListener('click', function closeEmojiPicker(e) {
+            if (!emojiPicker.contains(e.target) && !btn.contains(e.target)) {
+                emojiPicker.style.display = 'none';
+                document.removeEventListener('click', closeEmojiPicker);
+            }
         });
     }
 
