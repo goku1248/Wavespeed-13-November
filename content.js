@@ -1402,10 +1402,10 @@ function renderComments(comments, userEmail, currentUrl) {
                 <div class="comment-text" id="comment-text-${comment._id}">${commentTextWithImages}</div>
                 <div class="comment-actions">
                     <button class="action-btn reply-btn" data-comment-id="${comment._id}">💬</button>
-                    <button class="action-btn like-btn ${comment.likedBy && comment.likedBy.includes(userEmail) ? 'liked' : ''}" data-comment-id="${comment._id}">👍</button>
-                    <button class="action-btn dislike-btn ${comment.dislikedBy && comment.dislikedBy.includes(userEmail) ? 'disliked' : ''}" data-comment-id="${comment._id}">👎</button>
-                    <button class="action-btn trust-btn ${comment.trustedBy && comment.trustedBy.includes(userEmail) ? 'trusted' : ''}" data-comment-id="${comment._id}">✅</button>
-                    <button class="action-btn distrust-btn ${comment.distrustedBy && comment.distrustedBy.includes(userEmail) ? 'distrusted' : ''}" data-comment-id="${comment._id}">❌</button>
+                    <button class="action-btn like-btn ${comment.likedBy && comment.likedBy.includes(userEmail) ? 'liked' : ''}" data-comment-id="${comment._id}">👍 ${comment.likes || 0}</button>
+                    <button class="action-btn dislike-btn ${comment.dislikedBy && comment.dislikedBy.includes(userEmail) ? 'disliked' : ''}" data-comment-id="${comment._id}">👎 ${comment.dislikes || 0}</button>
+                    <button class="action-btn trust-btn ${comment.trustedBy && comment.trustedBy.includes(userEmail) ? 'trusted' : ''}" data-comment-id="${comment._id}">✅ ${comment.trusts || 0}</button>
+                    <button class="action-btn distrust-btn ${comment.distrustedBy && comment.distrustedBy.includes(userEmail) ? 'distrusted' : ''}" data-comment-id="${comment._id}">❌ ${comment.distrusts || 0}</button>
                     ${comment.user?.email === userEmail ? `
                         <button class="action-btn edit-btn" data-comment-id="${comment._id}">✏️</button>
                         <button class="action-btn delete-btn" data-comment-id="${comment._id}">🗑️</button>
@@ -1485,13 +1485,13 @@ function renderReplies(replies, level = 1, commentId, userEmail) {
                 </div>
                 <div class="reply-text">${replyTextWithImages}</div>
                 <div class="reply-actions">
-                    <button class="action-btn like-reply-btn ${reply.likedBy && reply.likedBy.includes(userEmail) ? 'liked' : ''}" data-reply-id="${reply._id}" data-comment-id="${comment._id}">👍</button>
-                    <button class="action-btn dislike-reply-btn ${reply.dislikedBy && reply.dislikedBy.includes(userEmail) ? 'disliked' : ''}" data-reply-id="${reply._id}" data-comment-id="${comment._id}">👎</button>
-                    <button class="action-btn trust-reply-btn ${reply.trustedBy && reply.trustedBy.includes(userEmail) ? 'trusted' : ''}" data-reply-id="${reply._id}" data-comment-id="${comment._id}">✅</button>
-                    <button class="action-btn distrust-reply-btn ${reply.distrustedBy && reply.distrustedBy.includes(userEmail) ? 'distrusted' : ''}" data-reply-id="${reply._id}" data-comment-id="${comment._id}">❌</button>
+                    <button class="action-btn like-reply-btn ${reply.likedBy && reply.likedBy.includes(userEmail) ? 'liked' : ''}" data-reply-id="${reply._id}" data-comment-id="${commentId}">👍 ${reply.likes || 0}</button>
+                    <button class="action-btn dislike-reply-btn ${reply.dislikedBy && reply.dislikedBy.includes(userEmail) ? 'disliked' : ''}" data-reply-id="${reply._id}" data-comment-id="${commentId}">👎 ${reply.dislikes || 0}</button>
+                    <button class="action-btn trust-reply-btn ${reply.trustedBy && reply.trustedBy.includes(userEmail) ? 'trusted' : ''}" data-reply-id="${reply._id}" data-comment-id="${commentId}">✅ ${reply.trusts || 0}</button>
+                    <button class="action-btn distrust-reply-btn ${reply.distrustedBy && reply.distrustedBy.includes(userEmail) ? 'distrusted' : ''}" data-reply-id="${reply._id}" data-comment-id="${commentId}">❌ ${reply.distrusts || 0}</button>
                     ${reply.user?.email === userEmail ? `
-                        <button class="action-btn edit-reply-btn" data-reply-id="${reply._id}" data-comment-id="${comment._id}">✏️</button>
-                        <button class="action-btn delete-reply-btn" data-reply-id="${reply._id}" data-comment-id="${comment._id}">🗑️</button>
+                        <button class="action-btn edit-reply-btn" data-reply-id="${reply._id}" data-comment-id="${commentId}">✏️</button>
+                        <button class="action-btn delete-reply-btn" data-reply-id="${reply._id}" data-comment-id="${commentId}">🗑️</button>
                     ` : ''}
                 </div>
                 <div class="reply-input-container" id="reply-input-${reply._id}" style="display:none;"></div>

@@ -994,7 +994,7 @@ async function fixExistingReplies() {
 }
 
 // Start server
-const PORT = 3001; // Force port 3001 for local development
+const PORT = process.env.PORT || 3001;
 console.log('Environment PORT:', process.env.PORT);
 console.log('Using PORT:', PORT);
 app.listen(PORT, () => {

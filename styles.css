@@ -955,11 +955,13 @@
     cursor: pointer;
     font-size: 14px;
     transition: all 0.2s ease;
-    min-width: 32px;
+    min-width: 40px;
     height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 4px;
+    white-space: nowrap;
 }
 
 .action-btn:hover {
