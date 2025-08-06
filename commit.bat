@@ -1,0 +1,3 @@
+@echo off
+echo 🔄 Auto-committing changes...
+node auto-commit.js "%~1" "%~2"

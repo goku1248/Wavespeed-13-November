@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "commit": "node auto-commit.js",
+    "push": "node auto-commit.js \"🔄 Quick update\" \"Auto-committed via npm script\""
   },
   "dependencies": {
     "cors": "^2.8.5",
