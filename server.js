@@ -1,9 +1,18 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 require('dotenv').config();
 
 const app = express();
+const server = createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
 
 // Middleware
 app.use(cors());
@@ -416,6 +425,13 @@ app.post('/api/comments', async (req, res) => {
         console.log('Saving comment to database...');
         const savedComment = await comment.save();
         console.log('Comment created successfully:', savedComment._id);
+        
+        // Emit WebSocket event for real-time updates
+        io.to(url).emit('comment-added', {
+            comment: savedComment,
+            timestamp: new Date()
+        });
+        
         res.json(savedComment);
     } catch (error) {
         console.error('Error creating comment:', error);
@@ -538,6 +554,15 @@ app.post('/api/comments/:commentId/replies/:parentReplyId', async (req, res) => 
     await comment.save();
     
     console.log('Reply saved successfully. Parent ID:', parent._id);
+    
+    // Emit WebSocket event for real-time updates
+    io.to(comment.url).emit('reply-added', {
+        reply: newReply,
+        commentId,
+        parentReplyId,
+        timestamp: new Date()
+    });
+    
     res.json(comment);
   } catch (error) {
     console.error('Error adding reply:', error);
@@ -652,6 +677,22 @@ app.put('/api/comments/:commentId/reaction', async (req, res) => {
 
         await comment.save();
         console.log('Reaction updated successfully');
+        
+        // Emit WebSocket event for real-time updates
+        io.to(comment.url).emit('reaction-updated', {
+            type,
+            targetId: commentId,
+            targetType: 'comment',
+            user: { email: userEmail },
+            newCounts: {
+                likes: comment.likes,
+                dislikes: comment.dislikes,
+                trusts: comment.trusts,
+                distrusts: comment.distrusts
+            },
+            timestamp: new Date()
+        });
+        
         res.json(comment);
     } catch (error) {
         console.error('Error updating reaction:', error);
@@ -790,6 +831,21 @@ app.put('/api/comments/:commentId/replies/:replyId/reaction', async (req, res) =
         comment.markModified('replies');
         await comment.save();
         
+        // Emit WebSocket event for real-time updates
+        io.to(comment.url).emit('reaction-updated', {
+            type,
+            targetId: replyId,
+            targetType: 'reply',
+            user: { email: userEmail },
+            newCounts: {
+                likes: reply.likes,
+                dislikes: reply.dislikes,
+                trusts: reply.trusts,
+                distrusts: reply.distrusts
+            },
+            timestamp: new Date()
+        });
+        
         res.json(comment);
     } catch (error) {
         console.error('Error updating reply reaction:', error);
@@ -886,6 +942,99 @@ app.put('/api/comments/:commentId/replies/:replyId', async (req, res) => {
         res.json(comment);
     } catch (error) {
         console.error('Error editing reply:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get users who reacted to a comment
+app.get('/api/comments/:commentId/reactions', async (req, res) => {
+    try {
+        if (!isConnected) {
+            console.error('Database not connected');
+            return res.status(500).json({ error: 'Database connection error' });
+        }
+
+        const commentId = req.params.commentId;
+        console.log('Fetching reactions for comment:', commentId);
+
+        const comment = await Comment.findById(commentId);
+        if (!comment) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        const reactions = {
+            likes: {
+                count: comment.likes || 0,
+                users: comment.likedBy || []
+            },
+            dislikes: {
+                count: comment.dislikes || 0,
+                users: comment.dislikedBy || []
+            },
+            trusts: {
+                count: comment.trusts || 0,
+                users: comment.trustedBy || []
+            },
+            distrusts: {
+                count: comment.distrusts || 0,
+                users: comment.distrustedBy || []
+            }
+        };
+
+        console.log('Reactions data for comment:', commentId, reactions);
+        res.json(reactions);
+    } catch (error) {
+        console.error('Error fetching comment reactions:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get users who reacted to a reply
+app.get('/api/comments/:commentId/replies/:replyId/reactions', async (req, res) => {
+    try {
+        if (!isConnected) {
+            console.error('Database not connected');
+            return res.status(500).json({ error: 'Database connection error' });
+        }
+
+        const { commentId, replyId } = req.params;
+        console.log('Fetching reactions for reply:', { commentId, replyId });
+
+        const comment = await Comment.findById(commentId);
+        if (!comment) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        // Use findReplyById to handle nested replies
+        const reply = findReplyById(comment.replies, replyId);
+        if (!reply) {
+            console.error(`Reply not found: ${replyId}`);
+            return res.status(404).json({ error: 'Reply not found' });
+        }
+
+        const reactions = {
+            likes: {
+                count: reply.likes || 0,
+                users: reply.likedBy || []
+            },
+            dislikes: {
+                count: reply.dislikes || 0,
+                users: reply.dislikedBy || []
+            },
+            trusts: {
+                count: reply.trusts || 0,
+                users: reply.trustedBy || []
+            },
+            distrusts: {
+                count: reply.distrusts || 0,
+                users: reply.distrustedBy || []
+            }
+        };
+
+        console.log('Reactions data for reply:', replyId, reactions);
+        res.json(reactions);
+    } catch (error) {
+        console.error('Error fetching reply reactions:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -1020,12 +1169,201 @@ async function fixExistingReplies() {
     }
 }
 
+// WebSocket connection handling
+const activeUsers = new Map(); // Track active users per URL
+const typingUsers = new Map(); // Track typing users per URL
+
+io.on('connection', (socket) => {
+    console.log('User connected:', socket.id);
+    
+    // Join room based on URL
+    socket.on('join-page', (data) => {
+        const { url, user } = data;
+        console.log(`User ${user.email} joined page: ${url}`);
+        
+        // Leave previous rooms
+        socket.leaveAll();
+        
+        // Join the URL-specific room
+        socket.join(url);
+        socket.currentUrl = url;
+        socket.user = user;
+        
+        // Track active user
+        if (!activeUsers.has(url)) {
+            activeUsers.set(url, new Map());
+        }
+        activeUsers.get(url).set(socket.id, {
+            user,
+            lastSeen: Date.now(),
+            socketId: socket.id
+        });
+        
+        // Notify others about new user
+        socket.to(url).emit('user-joined', {
+            user,
+            activeCount: activeUsers.get(url).size
+        });
+        
+        // Send current active users to the new user
+        const currentUsers = Array.from(activeUsers.get(url).values());
+        socket.emit('active-users', currentUsers);
+    });
+    
+    // Handle new comments
+    socket.on('new-comment', (data) => {
+        const { url, comment } = data;
+        console.log(`Broadcasting new comment for URL: ${url}`);
+        
+        // Broadcast to all users on the same page except sender
+        socket.to(url).emit('comment-added', {
+            comment,
+            timestamp: new Date()
+        });
+    });
+    
+    // Handle new replies
+    socket.on('new-reply', (data) => {
+        const { url, reply, commentId, parentReplyId } = data;
+        console.log(`Broadcasting new reply for comment ${commentId}`);
+        
+        socket.to(url).emit('reply-added', {
+            reply,
+            commentId,
+            parentReplyId,
+            timestamp: new Date()
+        });
+    });
+    
+    // Handle reactions
+    socket.on('reaction-update', (data) => {
+        const { url, type, targetId, targetType, user, newCounts } = data;
+        console.log(`Broadcasting reaction update: ${type} on ${targetType} ${targetId}`);
+        
+        socket.to(url).emit('reaction-updated', {
+            type,
+            targetId,
+            targetType,
+            user,
+            newCounts,
+            timestamp: new Date()
+        });
+    });
+    
+    // Handle typing indicators
+    socket.on('typing-start', (data) => {
+        const { url, user, commentId, parentReplyId } = data;
+        const typingKey = `${url}:${commentId || 'main'}:${parentReplyId || 'root'}`;
+        
+        if (!typingUsers.has(typingKey)) {
+            typingUsers.set(typingKey, new Map());
+        }
+        
+        typingUsers.get(typingKey).set(socket.id, {
+            user,
+            timestamp: Date.now()
+        });
+        
+        // Broadcast typing indicator
+        socket.to(url).emit('user-typing', {
+            user,
+            commentId,
+            parentReplyId,
+            typingUsers: Array.from(typingUsers.get(typingKey).values())
+        });
+    });
+    
+    socket.on('typing-stop', (data) => {
+        const { url, commentId, parentReplyId } = data;
+        const typingKey = `${url}:${commentId || 'main'}:${parentReplyId || 'root'}`;
+        
+        if (typingUsers.has(typingKey)) {
+            typingUsers.get(typingKey).delete(socket.id);
+            
+            if (typingUsers.get(typingKey).size === 0) {
+                typingUsers.delete(typingKey);
+            }
+            
+            // Broadcast updated typing indicator
+            socket.to(url).emit('user-typing', {
+                user: socket.user,
+                commentId,
+                parentReplyId,
+                typingUsers: typingUsers.has(typingKey) ? Array.from(typingUsers.get(typingKey).values()) : []
+            });
+        }
+    });
+    
+    // Handle scroll position for collaborative cursors
+    socket.on('scroll-position', (data) => {
+        const { url, scrollY, viewportHeight } = data;
+        
+        if (socket.currentUrl === url) {
+            socket.to(url).emit('user-scroll', {
+                user: socket.user,
+                scrollY,
+                viewportHeight,
+                timestamp: Date.now()
+            });
+        }
+    });
+    
+    // Handle disconnect
+    socket.on('disconnect', () => {
+        console.log('User disconnected:', socket.id);
+        
+        // Clean up active users
+        if (socket.currentUrl && activeUsers.has(socket.currentUrl)) {
+            activeUsers.get(socket.currentUrl).delete(socket.id);
+            
+            if (activeUsers.get(socket.currentUrl).size === 0) {
+                activeUsers.delete(socket.currentUrl);
+            } else {
+                // Notify others about user leaving
+                socket.to(socket.currentUrl).emit('user-left', {
+                    user: socket.user,
+                    activeCount: activeUsers.get(socket.currentUrl).size
+                });
+            }
+        }
+        
+        // Clean up typing indicators
+        for (const [typingKey, users] of typingUsers.entries()) {
+            if (users.has(socket.id)) {
+                users.delete(socket.id);
+                if (users.size === 0) {
+                    typingUsers.delete(typingKey);
+                }
+            }
+        }
+    });
+});
+
+// Cleanup inactive users periodically
+setInterval(() => {
+    const now = Date.now();
+    const INACTIVE_THRESHOLD = 5 * 60 * 1000; // 5 minutes
+    
+    for (const [url, users] of activeUsers.entries()) {
+        for (const [socketId, userData] of users.entries()) {
+            if (now - userData.lastSeen > INACTIVE_THRESHOLD) {
+                users.delete(socketId);
+            }
+        }
+        
+        if (users.size === 0) {
+            activeUsers.delete(url);
+        }
+    }
+}, 60000); // Check every minute
+
 // Start server
 const PORT = process.env.PORT || 3001;
 console.log('Environment PORT:', process.env.PORT);
 console.log('Using PORT:', PORT);
-app.listen(PORT, () => {
+server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
+    console.log('WebSocket server initialized');
     // Run the one-time fix after server starts
     // fixExistingReplies(); // This line is removed as per the edit hint.
 }); 

@@ -1,3 +1,94 @@
+// WebSocket connection management
+let socket = null;
+let currentUser = null;
+let typingTimer = null;
+let scrollTimer = null;
+
+// Initialize WebSocket connection
+function initializeWebSocket() {
+    if (socket) {
+        socket.disconnect();
+    }
+    
+    // Load Socket.IO client library
+    const script = document.createElement('script');
+    script.src = 'https://cdn.socket.io/4.7.2/socket.io.min.js';
+    script.onload = () => {
+        console.log('Socket.IO loaded, connecting...');
+        connectWebSocket();
+    };
+    document.head.appendChild(script);
+}
+
+function connectWebSocket() {
+    socket = io('http://localhost:3000');
+    
+    socket.on('connect', () => {
+        console.log('Connected to WebSocket server');
+        if (currentUser) {
+            socket.emit('join-page', {
+                url: window.location.href,
+                user: currentUser
+            });
+        }
+    });
+    
+    // Listen for real-time events
+    setupWebSocketListeners();
+}
+
+function setupWebSocketListeners() {
+    // Live comment notifications
+    socket.on('comment-added', (data) => {
+        console.log('New comment received:', data);
+        showNotification(`${data.comment.user.name} added a comment`, 'comment');
+        // Refresh comments to show the new one
+        refreshComments();
+    });
+    
+    // Live reply notifications  
+    socket.on('reply-added', (data) => {
+        console.log('New reply received:', data);
+        showNotification(`${data.reply.user.name} replied to a comment`, 'reply');
+        refreshComments();
+    });
+    
+    // Live reaction updates
+    socket.on('reaction-updated', (data) => {
+        console.log('Reaction updated:', data);
+        updateReactionUI(data);
+    });
+    
+    // Typing indicators
+    socket.on('user-typing', (data) => {
+        console.log('User typing:', data);
+        showTypingIndicator(data);
+    });
+    
+    // Active users
+    socket.on('active-users', (users) => {
+        console.log('Active users:', users);
+        updateActiveUsersUI(users);
+    });
+    
+    socket.on('user-joined', (data) => {
+        console.log('User joined:', data);
+        showNotification(`${data.user.name} joined the page`, 'user-join');
+        updateActiveUsersCount(data.activeCount);
+    });
+    
+    socket.on('user-left', (data) => {
+        console.log('User left:', data);
+        updateActiveUsersCount(data.activeCount);
+    });
+    
+    // Collaborative cursors
+    socket.on('user-scroll', (data) => {
+        console.log('User scroll:', data);
+        showCollaborativeCursor(data);
+    });
+}
+
 // Create and inject the comments panel
 async function createCommentsPanel() {
     console.log('Creating comments panel...');
@@ -83,10 +174,10 @@ async function createCommentsPanel() {
     // Set initial position
     panel.style.position = 'fixed';
     
-    // Restore saved state
-    await restorePanelState(panel);
+    // Restore saved position and size state early (but not minimized state)
+    await restorePanelPositionAndSize(panel);
     
-    // If no saved state, set default position
+    // Set default position if no saved state exists
     if (!panel.style.left && !panel.style.right) {
         panel.style.right = '20px';
         panel.style.top = '20px';
@@ -188,7 +279,7 @@ async function createCommentsPanel() {
     document.body.appendChild(floatingIcon);
 
     // Add minimize/restore logic after panel is added to DOM
-    setTimeout(() => {
+    setTimeout(async () => {
         const panel = document.getElementById('webpage-comments-panel');
         const minimizeBtn = document.getElementById('minimize-comments');
         const maximizeBtn = document.getElementById('maximize-comments');
@@ -200,14 +291,21 @@ async function createCommentsPanel() {
             panel.dataset.isMaximized = 'false';
         }
         
+        // Restore only the minimized state now that floating icon is ready
+        await restorePanelMinimizedState(panel);
+        
         if (minimizeBtn && panel && floatingIcon) {
-            minimizeBtn.addEventListener('click', () => {
+            minimizeBtn.addEventListener('click', async () => {
                 panel.style.display = 'none';
                 floatingIcon.style.display = 'flex';
+                // Save minimized state
+                await savePanelState(panel, true);
             });
-            floatingIcon.addEventListener('click', () => {
+            floatingIcon.addEventListener('click', async () => {
                 panel.style.display = 'flex';
                 floatingIcon.style.display = 'none';
+                // Save restored state
+                await savePanelState(panel, false);
             });
         }
         
@@ -469,13 +567,31 @@ async function checkAuthStatus() {
         const isAuthenticated = result.isAuthenticated || false;
         
         if (isAuthenticated) {
+            currentUser = result.user;
             authMessage.classList.add('hidden');
             commentInput.disabled = false;
             submitButton.disabled = false;
+            
+            // Initialize WebSocket if user is authenticated
+            if (!socket) {
+                initializeWebSocket();
+            } else if (socket.connected) {
+                socket.emit('join-page', {
+                    url: window.location.href,
+                    user: currentUser
+                });
+            }
         } else {
+            currentUser = null;
             authMessage.classList.remove('hidden');
             commentInput.disabled = true;
             submitButton.disabled = true;
+            
+            // Disconnect WebSocket if not authenticated
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+            }
         }
     } catch (error) {
         console.error('Failed to check auth status:', error);
@@ -496,7 +612,7 @@ function createComment({text, user, timestamp}) {
     };
 }
 
-const API_BASE_URL = 'http://localhost:3003/api';
+const API_BASE_URL = 'http://localhost:3000/api';
 
 // Add this at the top of the file with other global variables
 let currentSortBy = 'newest';
@@ -587,7 +703,7 @@ async function loadComments(sortBy = currentSortBy) {
                     'class': this.className
                 });
                 
-                const commentId = this.closest('.comment').getAttribute('data-comment-id');
+                const commentId = this.getAttribute('data-comment-id');
                 const parentReplyIdAttr = this.getAttribute('data-parent-reply-id');
                 
                 console.log('Raw attributes:', {
@@ -613,7 +729,9 @@ async function loadComments(sortBy = currentSortBy) {
                     parentReplyId, 
                     containerId, 
                     isNestedReply,
-                    parentReplyIdAttr 
+                    parentReplyIdAttr,
+                    buttonElement: this,
+                    buttonHTML: this.outerHTML
                 });
                 console.log('Button attributes:', {
                     'data-comment-id': this.getAttribute('data-comment-id'),
@@ -1154,6 +1272,269 @@ function showReplyInput(commentId, containerId, apiParentId) {
         
         // Initialize emoji picker for this reply input
         initializeEmojiPicker();
+        
+        // Set up emoji button for this specific reply input
+        const replyEmojiBtn = container.querySelector('.reply-emoji-btn');
+        const replyEmojiPicker = container.querySelector('.reply-emoji-picker');
+        const replyEmojiGrid = container.querySelector('.reply-emoji-grid');
+        const replyTextarea = container.querySelector('.reply-textarea');
+        
+        console.log('Reply emoji elements found:', {
+            replyEmojiBtn: replyEmojiBtn ? 'Found' : 'NOT FOUND',
+            replyEmojiPicker: replyEmojiPicker ? 'Found' : 'NOT FOUND',
+            replyEmojiGrid: replyEmojiGrid ? 'Found' : 'NOT FOUND',
+            replyTextarea: replyTextarea ? 'Found' : 'NOT FOUND'
+        });
+        
+        if (replyEmojiBtn && replyEmojiPicker && replyEmojiGrid && replyTextarea) {
+            console.log('Setting up emoji picker for reply input');
+            let currentCategory = 'smileys';
+            
+            replyEmojiBtn.addEventListener('click', (e) => {
+                console.log('=== REPLY EMOJI BUTTON CLICKED ===');
+                console.log('Event:', e);
+                console.log('Button element:', replyEmojiBtn);
+                console.log('Button HTML:', replyEmojiBtn.outerHTML);
+                e.stopPropagation();
+                const isVisible = replyEmojiPicker.style.display === 'block';
+                console.log('Emoji picker visibility check:', {
+                    isVisible,
+                    currentDisplay: replyEmojiPicker.style.display,
+                    computedDisplay: window.getComputedStyle(replyEmojiPicker).display
+                });
+                
+                if (isVisible) {
+                    console.log('Hiding emoji picker');
+                    replyEmojiPicker.style.display = 'none';
+                } else {
+                    console.log('Showing emoji picker');
+                    // Position the emoji picker relative to the button
+                    const buttonRect = replyEmojiBtn.getBoundingClientRect();
+                    const viewportWidth = window.innerWidth;
+                    const viewportHeight = window.innerHeight;
+                    const pickerWidth = 280;
+                    const pickerHeight = 300;
+                    
+                    // Calculate left position to keep picker within viewport
+                    let leftPos = buttonRect.left;
+                    if (leftPos + pickerWidth > viewportWidth - 10) {
+                        leftPos = viewportWidth - pickerWidth - 10;
+                    }
+                    if (leftPos < 10) {
+                        leftPos = 10;
+                    }
+                    
+                    // Calculate top position
+                    let topPos = buttonRect.bottom + 5;
+                    
+                    // If picker would go below viewport, position it above the button
+                    if (topPos + pickerHeight > viewportHeight - 10) {
+                        topPos = buttonRect.top - pickerHeight - 5;
+                    }
+                    
+                    // Ensure minimum top position
+                    if (topPos < 10) {
+                        topPos = 10;
+                    }
+                    
+                    replyEmojiPicker.style.left = `${leftPos}px`;
+                    replyEmojiPicker.style.top = `${topPos}px`;
+                    replyEmojiPicker.style.display = 'block';
+                    
+                    console.log('Reply emoji picker position:', {
+                        left: `${leftPos}px`,
+                        top: `${topPos}px`,
+                        viewportWidth,
+                        viewportHeight,
+                        pickerWidth,
+                        pickerHeight,
+                        buttonLeft: buttonRect.left,
+                        buttonBottom: buttonRect.bottom
+                    });
+                    
+                    console.log('Emoji picker element after positioning:', {
+                        display: replyEmojiPicker.style.display,
+                        left: replyEmojiPicker.style.left,
+                        top: replyEmojiPicker.style.top,
+                        zIndex: replyEmojiPicker.style.zIndex,
+                        computedStyle: window.getComputedStyle(replyEmojiPicker).display,
+                        boundingRect: replyEmojiPicker.getBoundingClientRect(),
+                        isVisible: replyEmojiPicker.getBoundingClientRect().width > 0 && replyEmojiPicker.getBoundingClientRect().height > 0
+                    });
+                    
+                    // Force the picker to be visible
+                    replyEmojiPicker.style.zIndex = '2147483647';
+                    replyEmojiPicker.style.position = 'fixed';
+                    replyEmojiPicker.style.display = 'block';
+                    
+                    console.log('Final emoji picker state:', {
+                        display: replyEmojiPicker.style.display,
+                        zIndex: replyEmojiPicker.style.zIndex,
+                        position: replyEmojiPicker.style.position,
+                        boundingRect: replyEmojiPicker.getBoundingClientRect()
+                    });
+                }
+                
+                if (!isVisible) {
+                    console.log('Rendering emoji grid for reply picker');
+                    console.log('Category:', currentCategory);
+                    console.log('Grid element:', replyEmojiGrid);
+                    console.log('Grid element HTML before rendering:', replyEmojiGrid.innerHTML);
+                    renderEmojiGrid(currentCategory, replyEmojiGrid, (emoji) => {
+                        console.log('Emoji selected in reply picker:', emoji);
+                        insertAtCursor(replyTextarea, emoji);
+                        replyEmojiPicker.style.display = 'none';
+                        replyTextarea.focus();
+                    });
+                    console.log('Grid element HTML after rendering:', replyEmojiGrid.innerHTML);
+                    console.log('Grid element children count:', replyEmojiGrid.children.length);
+                }
+                
+                // Set up category switching for this picker
+                replyEmojiPicker.querySelectorAll('.emoji-category').forEach(btn => {
+                    btn.onclick = function(e) {
+                        e.stopPropagation();
+                        replyEmojiPicker.querySelectorAll('.emoji-category').forEach(b => b.classList.remove('active'));
+                        this.classList.add('active');
+                        currentCategory = this.getAttribute('data-category');
+                        renderEmojiGrid(currentCategory, replyEmojiGrid, (emoji) => {
+                            insertAtCursor(replyTextarea, emoji);
+                            replyEmojiPicker.style.display = 'none';
+                            replyTextarea.focus();
+                        });
+                    };
+                });
+                
+                // Close picker when clicking outside
+                const closePicker = (event) => {
+                    if (!replyEmojiPicker.contains(event.target) && !replyEmojiBtn.contains(event.target)) {
+                        replyEmojiPicker.style.display = 'none';
+                        document.removeEventListener('click', closePicker);
+                    }
+                };
+                setTimeout(() => {
+                    document.addEventListener('click', closePicker);
+                }, 10);
+            });
+        }
+        
+        // Set up GIF button for this specific reply input
+        const replyGifBtn = container.querySelector('.reply-gif-btn');
+        const replyGifPicker = container.querySelector('.reply-gif-picker');
+        const replyGifGrid = container.querySelector('.reply-gif-grid');
+        const replyGifSearch = container.querySelector('.gif-search-input');
+        const replyGifSearchBtn = container.querySelector('.gif-search-btn');
+        const replyGifLoading = container.querySelector('.reply-gif-loading');
+        
+        if (replyGifBtn && replyGifPicker && replyGifGrid && replyTextarea) {
+            console.log('Setting up GIF picker for reply input');
+            
+            replyGifBtn.addEventListener('click', (e) => {
+                console.log('Reply GIF button clicked!');
+                e.stopPropagation();
+                const isVisible = replyGifPicker.style.display === 'block';
+                
+                if (isVisible) {
+                    replyGifPicker.style.display = 'none';
+                } else {
+                    // Position the GIF picker relative to the button
+                    const buttonRect = replyGifBtn.getBoundingClientRect();
+                    const viewportWidth = window.innerWidth;
+                    const viewportHeight = window.innerHeight;
+                    const pickerWidth = 300;
+                    const pickerHeight = 400;
+                    
+                    // Calculate left position to keep picker within viewport
+                    let leftPos = buttonRect.left;
+                    if (leftPos + pickerWidth > viewportWidth - 10) {
+                        leftPos = viewportWidth - pickerWidth - 10;
+                    }
+                    if (leftPos < 10) {
+                        leftPos = 10;
+                    }
+                    
+                    // Calculate top position
+                    let topPos = buttonRect.bottom + 5;
+                    
+                    // If picker would go below viewport, position it above the button
+                    if (topPos + pickerHeight > viewportHeight - 10) {
+                        topPos = buttonRect.top - pickerHeight - 5;
+                    }
+                    
+                    // Ensure minimum top position
+                    if (topPos < 10) {
+                        topPos = 10;
+                    }
+                    
+                    replyGifPicker.style.left = `${leftPos}px`;
+                    replyGifPicker.style.top = `${topPos}px`;
+                    replyGifPicker.style.display = 'block';
+                    
+                    console.log('Reply GIF picker position:', {
+                        left: `${leftPos}px`,
+                        top: `${topPos}px`,
+                        viewportWidth,
+                        viewportHeight,
+                        pickerWidth,
+                        pickerHeight,
+                        buttonLeft: buttonRect.left,
+                        buttonBottom: buttonRect.bottom
+                    });
+                }
+                
+                if (!isVisible) {
+                    // Load trending GIFs
+                    getTrendingGifs().then(gifs => {
+                        renderGifGrid(gifs, replyGifGrid, (gifUrl) => {
+                            insertAtCursor(replyTextarea, gifUrl);
+                            replyGifPicker.style.display = 'none';
+                            replyTextarea.focus();
+                        });
+                    });
+                }
+                
+                // Set up GIF search functionality
+                if (replyGifSearch && replyGifSearchBtn) {
+                    replyGifSearchBtn.onclick = async (e) => {
+                        e.stopPropagation();
+                        const query = replyGifSearch.value.trim();
+                        if (query) {
+                            replyGifLoading.style.display = 'block';
+                            try {
+                                const gifs = await searchGifs(query);
+                                renderGifGrid(gifs, replyGifGrid, (gifUrl) => {
+                                    insertAtCursor(replyTextarea, gifUrl);
+                                    replyGifPicker.style.display = 'none';
+                                    replyTextarea.focus();
+                                });
+                            } catch (error) {
+                                console.error('Error searching GIFs:', error);
+                            } finally {
+                                replyGifLoading.style.display = 'none';
+                            }
+                        }
+                    };
+                    
+                    // Allow Enter key to search
+                    replyGifSearch.onkeypress = (e) => {
+                        if (e.key === 'Enter') {
+                            replyGifSearchBtn.click();
+                        }
+                    };
+                }
+                
+                // Close picker when clicking outside
+                const closeGifPicker = (event) => {
+                    if (!replyGifPicker.contains(event.target) && !replyGifBtn.contains(event.target)) {
+                        replyGifPicker.style.display = 'none';
+                        document.removeEventListener('click', closeGifPicker);
+                    }
+                };
+                setTimeout(() => {
+                    document.addEventListener('click', closeGifPicker);
+                }, 10);
+            });
+        }
     } else {
         console.error('Container not found for ID:', `reply-input-${containerId}`);
         console.log('Available containers:', Array.from(document.querySelectorAll('.reply-input-container')).map(c => c.id));
@@ -1468,7 +1849,7 @@ function renderReplies(replies, level = 1, commentId, userEmail) {
         });
         
         // Debug the reply button attributes
-        const replyButtonHtml = `<button class="reply-btn" data-comment-id="${commentId}" ${reply._id ? `data-parent-reply-id="${reply._id}"` : ''}>Reply</button>`;
+        const replyButtonHtml = `<button class="reply-btn" data-comment-id="${commentId}" data-parent-reply-id="${reply._id || ''}">Reply</button>`;
         console.log(`Reply button HTML for reply ${reply._id}:`, replyButtonHtml);
         
         // Convert markdown images to HTML <img> tags
@@ -1489,6 +1870,7 @@ function renderReplies(replies, level = 1, commentId, userEmail) {
                     <button class="action-btn dislike-reply-btn ${reply.dislikedBy && reply.dislikedBy.includes(userEmail) ? 'disliked' : ''}" data-reply-id="${reply._id}" data-comment-id="${commentId}">👎 ${reply.dislikes || 0}</button>
                     <button class="action-btn trust-reply-btn ${reply.trustedBy && reply.trustedBy.includes(userEmail) ? 'trusted' : ''}" data-reply-id="${reply._id}" data-comment-id="${commentId}">✅ ${reply.trusts || 0}</button>
                     <button class="action-btn distrust-reply-btn ${reply.distrustedBy && reply.distrustedBy.includes(userEmail) ? 'distrusted' : ''}" data-reply-id="${reply._id}" data-comment-id="${commentId}">❌ ${reply.distrusts || 0}</button>
+                    <button class="action-btn reply-btn" data-comment-id="${commentId}" data-parent-reply-id="${reply._id || ''}">💬</button>
                     ${reply.user?.email === userEmail ? `
                         <button class="action-btn edit-reply-btn" data-reply-id="${reply._id}" data-comment-id="${commentId}">✏️</button>
                         <button class="action-btn delete-reply-btn" data-reply-id="${reply._id}" data-comment-id="${commentId}">🗑️</button>
@@ -1514,7 +1896,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // Save panel state to storage
-async function savePanelState(panel) {
+async function savePanelState(panel, isMinimized = null) {
     const rect = panel.getBoundingClientRect();
     const state = {
         width: panel.style.width,
@@ -1522,13 +1904,14 @@ async function savePanelState(panel) {
         left: rect.left,
         top: rect.top,
         right: window.innerWidth - rect.right,
-        isCollapsed: panel.querySelector('.comments-content').style.display === 'none'
+        isCollapsed: panel.querySelector('.comments-content').style.display === 'none',
+        isMinimized: isMinimized !== null ? isMinimized : (panel.style.display === 'none')
     };
     await chrome.storage.local.set({ panelState: state });
 }
 
-// Restore panel state from storage
-async function restorePanelState(panel) {
+// Restore panel position and size from storage (but not minimized state)
+async function restorePanelPositionAndSize(panel) {
     try {
         const result = await chrome.storage.local.get(['panelState']);
         const state = result.panelState;
@@ -1558,8 +1941,36 @@ async function restorePanelState(panel) {
             }
         }
     } catch (error) {
-        console.error('Failed to restore panel state:', error);
+        console.error('Failed to restore panel position and size:', error);
     }
+}
+
+// Restore only the minimized state (requires floating icon to be ready)
+async function restorePanelMinimizedState(panel) {
+    try {
+        const result = await chrome.storage.local.get(['panelState']);
+        const state = result.panelState;
+        
+        if (state && state.isMinimized) {
+            console.log('Restoring minimized state');
+            panel.style.display = 'none';
+            const floatingIcon = document.getElementById('comments-floating-icon');
+            if (floatingIcon) {
+                console.log('Setting floating icon to visible');
+                floatingIcon.style.display = 'flex';
+            } else {
+                console.error('Floating icon not found during restore');
+            }
+        }
+    } catch (error) {
+        console.error('Failed to restore panel minimized state:', error);
+    }
+}
+
+// Restore panel state from storage (legacy function - kept for compatibility)
+async function restorePanelState(panel) {
+    await restorePanelPositionAndSize(panel);
+    await restorePanelMinimizedState(panel);
 }
 
 // Ensure panel stays within viewport bounds
@@ -1645,7 +2056,7 @@ function renderEmojiGrid(category, gridElem, onEmojiClick) {
     const emojis = EMOJI_CATEGORIES[category] || EMOJI_CATEGORIES.smileys;
     console.log('Emojis to render:', emojis.length);
     
-    emojis.forEach(emoji => {
+    emojis.forEach((emoji, index) => {
         const btn = document.createElement('button');
         btn.className = 'emoji-item';
         btn.type = 'button';
@@ -1660,8 +2071,10 @@ function renderEmojiGrid(category, gridElem, onEmojiClick) {
             onEmojiClick(emoji);
         });
         gridElem.appendChild(btn);
+        console.log(`Added emoji ${index + 1}/${emojis.length}: ${emoji}`);
     });
     console.log('Emoji grid rendered with', gridElem.children.length, 'items');
+    console.log('Grid element HTML:', gridElem.innerHTML.substring(0, 200) + '...');
 }
 
 function initializeEmojiPicker() {
@@ -2732,3 +3145,230 @@ function restoreExpandedRepliesState() {
 // After rendering comments, call addRepliesToggleListeners
 // In loadComments, after commentsList.innerHTML = renderComments(...), add:
 // addRepliesToggleListeners();
+
+// WebSocket helper functions
+function showNotification(message, type) {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `websocket-notification ${type}`;
+    notification.innerHTML = `
+        <div class="notification-content">
+            <span class="notification-icon">${getNotificationIcon(type)}</span>
+            <span class="notification-message">${message}</span>
+        </div>
+    `;
+    
+    // Add to page
+    document.body.appendChild(notification);
+    
+    // Animate in
+    setTimeout(() => notification.classList.add('show'), 100);
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
+}
+
+function getNotificationIcon(type) {
+    switch (type) {
+        case 'comment': return '💬';
+        case 'reply': return '↩️';
+        case 'user-join': return '👋';
+        default: return '🔔';
+    }
+}
+
+function refreshComments() {
+    // Reload comments without scrolling to top
+    loadComments();
+}
+
+function updateReactionUI(data) {
+    const { targetId, targetType, newCounts } = data;
+    
+    // Find the reaction buttons for the target
+    const targetElement = targetType === 'comment' 
+        ? document.querySelector(`[data-comment-id="${targetId}"]`)
+        : document.querySelector(`[data-reply-id="${targetId}"]`);
+    
+    if (targetElement) {
+        // Update reaction counts
+        const likeBtn = targetElement.querySelector('.like-btn');
+        const dislikeBtn = targetElement.querySelector('.dislike-btn');
+        const trustBtn = targetElement.querySelector('.trust-btn');
+        const distrustBtn = targetElement.querySelector('.distrust-btn');
+        
+        if (likeBtn) likeBtn.textContent = `👍 ${newCounts.likes}`;
+        if (dislikeBtn) dislikeBtn.textContent = `👎 ${newCounts.dislikes}`;
+        if (trustBtn) trustBtn.textContent = `✅ ${newCounts.trusts}`;
+        if (distrustBtn) distrustBtn.textContent = `❌ ${newCounts.distrusts}`;
+    }
+}
+
+function showTypingIndicator(data) {
+    const { commentId, parentReplyId, typingUsers } = data;
+    
+    // Create typing indicator key
+    const key = `${commentId || 'main'}-${parentReplyId || 'root'}`;
+    
+    // Find target container
+    let container;
+    if (commentId && parentReplyId !== 'root') {
+        container = document.querySelector(`[data-reply-id="${parentReplyId}"]`);
+    } else if (commentId) {
+        container = document.querySelector(`[data-comment-id="${commentId}"]`);
+    } else {
+        container = document.getElementById('comments-list');
+    }
+    
+    if (!container) return;
+    
+    // Remove existing typing indicator
+    const existingIndicator = container.querySelector('.typing-indicator');
+    if (existingIndicator) {
+        existingIndicator.remove();
+    }
+    
+    // Show typing indicator if users are typing
+    if (typingUsers.length > 0) {
+        const indicator = document.createElement('div');
+        indicator.className = 'typing-indicator';
+        
+        const names = typingUsers.map(u => u.user.name).join(', ');
+        const verb = typingUsers.length === 1 ? 'is' : 'are';
+        
+        indicator.innerHTML = `
+            <div class="typing-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+            <span class="typing-text">${names} ${verb} typing...</span>
+        `;
+        
+        container.appendChild(indicator);
+    }
+}
+
+function updateActiveUsersUI(users) {
+    // Update active users count in header
+    const header = document.querySelector('.comments-header h3');
+    if (header) {
+        const count = users.length;
+        const baseText = 'Comments';
+        const userText = count > 0 ? ` (${count} online)` : '';
+        header.textContent = baseText + userText;
+    }
+}
+
+function updateActiveUsersCount(count) {
+    const header = document.querySelector('.comments-header h3');
+    if (header) {
+        const baseText = 'Comments';
+        const userText = count > 0 ? ` (${count} online)` : '';
+        header.textContent = baseText + userText;
+    }
+}
+
+function showCollaborativeCursor(data) {
+    const { user, scrollY, viewportHeight } = data;
+    
+    // Remove existing cursor for this user
+    const existingCursor = document.querySelector(`[data-user-id="${user.email}"]`);
+    if (existingCursor) {
+        existingCursor.remove();
+    }
+    
+    // Create collaborative cursor
+    const cursor = document.createElement('div');
+    cursor.className = 'collaborative-cursor';
+    cursor.setAttribute('data-user-id', user.email);
+    cursor.innerHTML = `
+        <div class="cursor-indicator"></div>
+        <div class="cursor-label">${user.name}</div>
+    `;
+    
+    // Position cursor based on scroll
+    cursor.style.position = 'fixed';
+    cursor.style.right = '10px';
+    cursor.style.top = `${Math.min(scrollY / document.body.scrollHeight * window.innerHeight, window.innerHeight - 50)}px`;
+    cursor.style.zIndex = '2147483647';
+    
+    document.body.appendChild(cursor);
+    
+    // Remove cursor after 5 seconds of inactivity
+    setTimeout(() => {
+        if (cursor.parentNode) {
+            cursor.remove();
+        }
+    }, 5000);
+}
+
+// Add typing detection to input fields
+function addTypingDetection() {
+    document.addEventListener('input', (e) => {
+        if (e.target.matches('#comment-input') || e.target.matches('.reply-input')) {
+            if (!socket || !currentUser) return;
+            
+            // Clear existing timer
+            if (typingTimer) clearTimeout(typingTimer);
+            
+            // Get context info
+            const commentId = e.target.getAttribute('data-comment-id');
+            const parentReplyId = e.target.getAttribute('data-parent-reply-id');
+            
+            // Emit typing start
+            socket.emit('typing-start', {
+                url: window.location.href,
+                user: currentUser,
+                commentId,
+                parentReplyId
+            });
+            
+            // Set timer to emit typing stop
+            typingTimer = setTimeout(() => {
+                socket.emit('typing-stop', {
+                    url: window.location.href,
+                    commentId,
+                    parentReplyId
+                });
+            }, 2000);
+        }
+    });
+}
+
+// Add scroll tracking for collaborative cursors
+function addScrollTracking() {
+    let lastScrollY = 0;
+    
+    window.addEventListener('scroll', () => {
+        if (!socket || !currentUser) return;
+        
+        // Clear existing timer
+        if (scrollTimer) clearTimeout(scrollTimer);
+        
+        // Throttle scroll events
+        scrollTimer = setTimeout(() => {
+            const scrollY = window.scrollY;
+            const viewportHeight = window.innerHeight;
+            
+            // Only emit if scroll position changed significantly
+            if (Math.abs(scrollY - lastScrollY) > 50) {
+                socket.emit('scroll-position', {
+                    url: window.location.href,
+                    scrollY,
+                    viewportHeight
+                });
+                lastScrollY = scrollY;
+            }
+        }, 100);
+    });
+}
+
+// Initialize WebSocket features
+setTimeout(() => {
+    addTypingDetection();
+    addScrollTracking();
+}, 1000);
