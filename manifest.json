@@ -8,6 +8,9 @@
     "activeTab",
     "identity"
   ],
+  "host_permissions": [
+    "http://localhost:3000/*"
+  ],
   "oauth2": {
     "client_id": "714271828008-1cbsmfivr1gp77rsc5rbblcthc3ock3h.apps.googleusercontent.com",
     "scopes": [

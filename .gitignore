@@ -37,4 +37,9 @@ coverage/
 .npm
 
 # Optional eslint cache
-.eslintcache 
+.eslintcache node_modules/
+server.log
+npm-debug.log*
+*.log
+.env
+.DS_Store

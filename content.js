@@ -12,7 +12,8 @@ function initializeWebSocket() {
     
     // Load Socket.IO client library
     const script = document.createElement('script');
-    script.src = 'https://cdn.socket.io/4.7.2/socket.io.min.js';
+    // Load from localhost to satisfy strict page CSP allowing localhost only
+    script.src = 'http://localhost:3000/socket.io/socket.io.js';
     script.onload = () => {
         console.log('Socket.IO loaded, connecting...');
         connectWebSocket();
@@ -21,7 +22,13 @@ function initializeWebSocket() {
 }
 
 function connectWebSocket() {
-    socket = io('http://localhost:3000');
+    // Guard against mixed-content errors on HTTPS pages by skipping WS init if blocked
+    try {
+        socket = io('http://localhost:3000');
+    } catch (e) {
+        console.warn('Socket.IO connection skipped due to mixed content:', e?.message || e);
+        return;
+    }
     
     socket.on('connect', () => {
         console.log('Connected to WebSocket server');
@@ -92,6 +99,14 @@ function setupWebSocketListeners() {
 // Create and inject the comments panel
 async function createCommentsPanel() {
     console.log('Creating comments panel...');
+    // Read persisted state before creating the panel to avoid flicker
+    let initialIsMinimized = false;
+    try {
+        const result = await chrome.storage.local.get(['panelState']);
+        initialIsMinimized = !!(result.panelState && result.panelState.isMinimized);
+    } catch (e) {
+        initialIsMinimized = false;
+    }
     const panel = document.createElement('div');
     panel.id = 'webpage-comments-panel';
     panel.innerHTML = `
@@ -134,6 +149,8 @@ async function createCommentsPanel() {
         </div>
         <div id="comments-bottom-resizer"></div>
     `;
+    // Apply initial minimized state BEFORE attaching to DOM to prevent flash
+    panel.style.display = initialIsMinimized ? 'none' : 'flex';
     document.body.appendChild(panel);
     
     // Add emoji picker outside the panel to avoid clipping
@@ -189,11 +206,7 @@ async function createCommentsPanel() {
     addPanelDragger(panel);
 
     // Add event listeners
-    document.getElementById('minimize-comments').addEventListener('click', () => {
-        panel.style.display = 'none';
-        const floatingIcon = document.getElementById('comments-floating-icon');
-        floatingIcon.style.display = 'flex';
-    });
+    // Minimize handler is set up later (after floating icon is created) to also persist state
     document.getElementById('close-comments').addEventListener('click', () => {
         // Remove the panel and floating icon completely
         panel.remove();
@@ -275,7 +288,7 @@ async function createCommentsPanel() {
     floatingIcon.id = 'comments-floating-icon';
     floatingIcon.title = 'Show Comments';
     floatingIcon.innerHTML = '💬';
-    floatingIcon.style.display = 'none';
+    floatingIcon.style.display = initialIsMinimized ? 'flex' : 'none';
     document.body.appendChild(floatingIcon);
 
     // Add minimize/restore logic after panel is added to DOM
@@ -291,8 +304,7 @@ async function createCommentsPanel() {
             panel.dataset.isMaximized = 'false';
         }
         
-        // Restore only the minimized state now that floating icon is ready
-        await restorePanelMinimizedState(panel);
+        // Minimized state already restored above
         
         if (minimizeBtn && panel && floatingIcon) {
             minimizeBtn.addEventListener('click', async () => {
@@ -614,6 +626,23 @@ function createComment({text, user, timestamp}) {
 
 const API_BASE_URL = 'http://localhost:3000/api';
 
+// Background-proxied fetch to avoid mixed content/CORS on HTTPS pages
+async function apiFetch(url, options = {}) {
+    return new Promise((resolve, reject) => {
+        try {
+            chrome.runtime.sendMessage({ action: 'apiFetch', url, options }, (response) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+                resolve(response);
+            });
+        } catch (err) {
+            reject(err);
+        }
+    });
+}
+
 // Add this at the top of the file with other global variables
 let currentSortBy = 'newest';
 
@@ -643,19 +672,30 @@ async function loadComments(sortBy = currentSortBy) {
 
     try {
         console.log('Fetching comments for URL:', currentUrl);
-        const response = await fetch(`${API_BASE_URL}/comments?url=${encodeURIComponent(currentUrl)}`);
+        const response = await apiFetch(`${API_BASE_URL}/comments?url=${encodeURIComponent(currentUrl)}`);
+        
+        if (!response || response.error) {
+            const message = response?.error || 'Unknown error';
+            console.error('Background apiFetch failed:', message);
+            throw new Error(`Failed to load comments: ${message}`);
+        }
         
         if (!response.ok) {
-            const errorText = await response.text();
             console.error('Server response not OK:', {
                 status: response.status,
                 statusText: response.statusText,
-                body: errorText
+                body: response.body
             });
-            throw new Error(`Failed to load comments: ${errorText}`);
+            throw new Error(`Failed to load comments: ${response.body || response.statusText || 'Request failed'}`);
         }
         
-        let comments = await response.json();
+        let comments = [];
+        try {
+            comments = JSON.parse(response.body || '[]');
+        } catch (e) {
+            console.error('Failed to parse comments JSON:', response.body);
+            throw new Error('Invalid response format from server');
+        }
         console.log('Received comments:', comments);
         console.log('Raw comments data structure:', JSON.stringify(comments, null, 2));
         
@@ -957,29 +997,18 @@ async function submitComment() {
         }
 
         const currentUrl = window.location.href;
-        const response = await fetch(`${API_BASE_URL}/comments`, {
+        const response = await apiFetch(`${API_BASE_URL}/comments`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                url: currentUrl,
-                text,
-                user: userData.user
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: { url: currentUrl, text, user: userData.user }
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Failed to submit comment:', {
-                status: response.status,
-                statusText: response.statusText,
-                error: errorText
-            });
-            throw new Error(`Failed to submit comment: ${errorText}`);
+        if (!response || response.error || !response.ok) {
+            const errMsg = response?.body || response?.statusText || response?.error || 'Request failed';
+            console.error('Failed to submit comment:', errMsg);
+            throw new Error(`Failed to submit comment: ${errMsg}`);
         }
 
-        const newComment = await response.json();
+        const newComment = JSON.parse(response.body || '{}');
         console.log('Comment submitted successfully:', newComment);
         
         commentInput.value = '';
@@ -1011,28 +1040,17 @@ async function handleLikeDislike(commentId, action) {
 
         console.log(`Handling ${action} for comment:`, commentId);
 
-        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/reaction`, {
+        const response = await apiFetch(`${API_BASE_URL}/comments/${commentId}/reaction`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                type: action,
-                userEmail
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: { type: action, userEmail }
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Failed to update reaction:', {
-                status: response.status,
-                statusText: response.statusText,
-                error: errorText
-            });
-            throw new Error(`Failed to update reaction: ${errorText}`);
+        if (!response || response.error || !response.ok) {
+            const errMsg = response?.body || response?.statusText || response?.error || 'Request failed';
+            console.error('Failed to update reaction:', errMsg);
+            throw new Error(`Failed to update reaction: ${errMsg}`);
         }
-
-        const updatedComment = await response.json();
+        const updatedComment = JSON.parse(response.body || '{}');
         console.log('Reaction updated successfully:', updatedComment);
 
         await loadComments(currentSortBy);
@@ -1059,28 +1077,17 @@ async function handleReplyReaction(commentId, replyId, action) {
             return;
         }
 
-        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}/reaction`, {
+        const response = await apiFetch(`${API_BASE_URL}/comments/${commentId}/replies/${replyId}/reaction`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                type: action,
-                userEmail
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: { type: action, userEmail }
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Failed to update reply reaction:', {
-                status: response.status,
-                statusText: response.statusText,
-                error: errorText
-            });
-            throw new Error(`Failed to update reply reaction: ${errorText}`);
+        if (!response || response.error || !response.ok) {
+            const errMsg = response?.body || response?.statusText || response?.error || 'Request failed';
+            console.error('Failed to update reply reaction:', errMsg);
+            throw new Error(`Failed to update reply reaction: ${errMsg}`);
         }
-
-        const updatedComment = await response.json();
+        const updatedComment = JSON.parse(response.body || '{}');
         await loadComments(currentSortBy);
     } catch (error) {
         console.error('Failed to update reply reaction:', error);
@@ -2203,7 +2210,9 @@ function initializeEmojiPicker() {
         
         // Add click outside handler to close emoji picker
         document.addEventListener('click', function closeEmojiPicker(e) {
-            if (!emojiPicker.contains(e.target) && !btn.contains(e.target)) {
+            const target = e.target;
+            // Use the emoji button element we created earlier instead of undefined 'btn'
+            if (!emojiPicker.contains(target) && !emojiBtn.contains(target)) {
                 emojiPicker.style.display = 'none';
                 document.removeEventListener('click', closeEmojiPicker);
             }

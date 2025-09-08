@@ -7,6 +7,44 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('Message received in background:', request);
 
+    // Proxy API fetches to avoid mixed content/CORS issues from HTTPS pages
+    if (request.action === 'apiFetch') {
+        (async () => {
+            try {
+                const url = request.url;
+                const options = request.options || {};
+                // Ensure headers exist and are plain object
+                const headers = new Headers(options.headers || {});
+                // Default JSON handling if body is object
+                if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
+                    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+                    options.body = JSON.stringify(options.body);
+                }
+                options.headers = headers;
+
+                const res = await fetch(url, options);
+                const bodyText = await res.text();
+                const resHeaders = {};
+                try {
+                    for (const [k, v] of res.headers.entries()) {
+                        resHeaders[k] = v;
+                    }
+                } catch (e) {}
+                sendResponse({
+                    ok: res.ok,
+                    status: res.status,
+                    statusText: res.statusText,
+                    headers: resHeaders,
+                    body: bodyText
+                });
+            } catch (error) {
+                console.error('apiFetch error:', error);
+                sendResponse({ error: error.message || String(error) });
+            }
+        })();
+        return true; // keep channel open for async response
+    }
+
     if (request.action === 'login') {
         console.log('Starting login process...');
         

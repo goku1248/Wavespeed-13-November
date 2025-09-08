@@ -18,8 +18,24 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.json());
 
+// Handle CORS and Private Network Access (Chrome preflight from https → http://localhost)
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') {
+        // Required for Chrome Private Network Access when calling localhost from https pages
+        res.header('Access-Control-Allow-Private-Network', 'true');
+        return res.sendStatus(204);
+    }
+    next();
+});
+
 // MongoDB connection
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://gokulvshetty:cHOgg9s7SEEXPyV7@cluster1.bckup3t.mongodb.net/?retryWrites=true&w=majority&appName=Cluster1';
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+    console.error('Missing MONGODB_URI. Please set it in your environment (see .env.example).');
+}
 
 // Add connection status tracking
 let isConnected = false;
