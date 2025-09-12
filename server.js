@@ -126,10 +126,12 @@ const replySchema = new mongoose.Schema({
   dislikes: { type: Number, default: 0 },
   trusts: { type: Number, default: 0 },
   distrusts: { type: Number, default: 0 },
+  flags: { type: Number, default: 0 },
   likedBy: [String],
   dislikedBy: [String],
   trustedBy: [String],
   distrustedBy: [String],
+  flaggedBy: [String],
   replies: [this] // Recursive!
 }, { _id: true });
 
@@ -147,10 +149,12 @@ const commentSchema = new mongoose.Schema({
     dislikes: { type: Number, default: 0 },
     trusts: { type: Number, default: 0 },
     distrusts: { type: Number, default: 0 },
+    flags: { type: Number, default: 0 },
     likedBy: [String],
     dislikedBy: [String],
     trustedBy: [String],
     distrustedBy: [String],
+    flaggedBy: [String],
     replies: [replySchema]
 });
 
@@ -171,10 +175,12 @@ const separateReplySchema = new mongoose.Schema({
   dislikes: { type: Number, default: 0 },
   trusts: { type: Number, default: 0 },
   distrusts: { type: Number, default: 0 },
+  flags: { type: Number, default: 0 },
   likedBy: [String],
   dislikedBy: [String],
   trustedBy: [String],
-  distrustedBy: [String]
+  distrustedBy: [String],
+  flaggedBy: [String]
 });
 
 const SeparateReply = mongoose.model('SeparateReply', separateReplySchema);
@@ -621,6 +627,18 @@ app.put('/api/comments/:commentId/reaction', async (req, res) => {
             return res.status(404).json({ error: 'Comment not found' });
         }
 
+        // Ensure reaction fields exist for legacy documents
+        if (!Array.isArray(comment.likedBy)) comment.likedBy = [];
+        if (!Array.isArray(comment.dislikedBy)) comment.dislikedBy = [];
+        if (!Array.isArray(comment.trustedBy)) comment.trustedBy = [];
+        if (!Array.isArray(comment.distrustedBy)) comment.distrustedBy = [];
+        if (!Array.isArray(comment.flaggedBy)) comment.flaggedBy = [];
+        if (typeof comment.likes !== 'number') comment.likes = 0;
+        if (typeof comment.dislikes !== 'number') comment.dislikes = 0;
+        if (typeof comment.trusts !== 'number') comment.trusts = 0;
+        if (typeof comment.distrusts !== 'number') comment.distrusts = 0;
+        if (typeof comment.flags !== 'number') comment.flags = 0;
+
         if (type === 'like') {
             if (comment.likedBy.includes(userEmail)) {
                 // User already liked, so unlike
@@ -689,8 +707,21 @@ app.put('/api/comments/:commentId/reaction', async (req, res) => {
                 }
                 console.log('User distrusted the comment');
             }
+        } else if (type === 'flag') {
+            if (!comment.flaggedBy) comment.flaggedBy = [];
+            if (comment.flaggedBy.includes(userEmail)) {
+                comment.flags -= 1;
+                comment.flaggedBy = comment.flaggedBy.filter(email => email !== userEmail);
+                console.log('User unflagged the comment');
+            } else {
+                comment.flags += 1;
+                comment.flaggedBy.push(userEmail);
+                console.log('User flagged the comment');
+            }
         }
 
+        // Ensure Mongoose persists nested changes
+        comment.markModified('replies');
         await comment.save();
         console.log('Reaction updated successfully');
         
@@ -704,7 +735,8 @@ app.put('/api/comments/:commentId/reaction', async (req, res) => {
                 likes: comment.likes,
                 dislikes: comment.dislikes,
                 trusts: comment.trusts,
-                distrusts: comment.distrusts
+                distrusts: comment.distrusts,
+                flags: comment.flags
             },
             timestamp: new Date()
         });
@@ -764,14 +796,16 @@ app.put('/api/comments/:commentId/replies/:replyId/reaction', async (req, res) =
         });
 
         // Ensure reaction arrays exist (safety check for old data)
-        if (!reply.likedBy) reply.likedBy = [];
-        if (!reply.dislikedBy) reply.dislikedBy = [];
-        if (!reply.trustedBy) reply.trustedBy = [];
-        if (!reply.distrustedBy) reply.distrustedBy = [];
-        if (!reply.likes) reply.likes = 0;
-        if (!reply.dislikes) reply.dislikes = 0;
-        if (!reply.trusts) reply.trusts = 0;
-        if (!reply.distrusts) reply.distrusts = 0;
+        if (!Array.isArray(reply.likedBy)) reply.likedBy = [];
+        if (!Array.isArray(reply.dislikedBy)) reply.dislikedBy = [];
+        if (!Array.isArray(reply.trustedBy)) reply.trustedBy = [];
+        if (!Array.isArray(reply.distrustedBy)) reply.distrustedBy = [];
+        if (!Array.isArray(reply.flaggedBy)) reply.flaggedBy = [];
+        if (typeof reply.likes !== 'number') reply.likes = 0;
+        if (typeof reply.dislikes !== 'number') reply.dislikes = 0;
+        if (typeof reply.trusts !== 'number') reply.trusts = 0;
+        if (typeof reply.distrusts !== 'number') reply.distrusts = 0;
+        if (typeof reply.flags !== 'number') reply.flags = 0;
 
         if (type === 'like') {
             if (reply.likedBy.includes(userEmail)) {
@@ -821,6 +855,14 @@ app.put('/api/comments/:commentId/replies/:replyId/reaction', async (req, res) =
                     reply.trustedBy = reply.trustedBy.filter(email => email !== userEmail);
                 }
             }
+        } else if (type === 'flag') {
+            if (reply.flaggedBy.includes(userEmail)) {
+                reply.flags -= 1;
+                reply.flaggedBy = reply.flaggedBy.filter(email => email !== userEmail);
+            } else {
+                reply.flags += 1;
+                reply.flaggedBy.push(userEmail);
+            }
         }
 
         console.log('After reaction update:', {
@@ -857,7 +899,8 @@ app.put('/api/comments/:commentId/replies/:replyId/reaction', async (req, res) =
                 likes: reply.likes,
                 dislikes: reply.dislikes,
                 trusts: reply.trusts,
-                distrusts: reply.distrusts
+                distrusts: reply.distrusts,
+                flags: reply.flags
             },
             timestamp: new Date()
         });

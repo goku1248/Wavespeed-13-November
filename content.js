@@ -624,7 +624,7 @@ function createComment({text, user, timestamp}) {
     };
 }
 
-const API_BASE_URL = 'http://localhost:3000/api';
+const API_BASE_URL = 'http://localhost:3001/api';
 
 // Background-proxied fetch to avoid mixed content/CORS on HTTPS pages
 async function apiFetch(url, options = {}) {
@@ -809,6 +809,12 @@ async function loadComments(sortBy = currentSortBy) {
                 await handleLikeDislike(commentId, 'distrust');
             });
         });
+        document.querySelectorAll('.comment > .comment-actions .flag-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const commentId = this.getAttribute('data-comment-id');
+                await handleLikeDislike(commentId, 'flag');
+            });
+        });
         document.querySelectorAll('.comment > .comment-actions .edit-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const commentId = this.getAttribute('data-comment-id');
@@ -825,10 +831,11 @@ async function loadComments(sortBy = currentSortBy) {
         });
 
         // Add event listeners for reply actions (handles all reply levels)
-        const replyLikeButtons = document.querySelectorAll('.reply .like-btn');
-        const replyDislikeButtons = document.querySelectorAll('.reply .dislike-btn');
-        const replyTrustButtons = document.querySelectorAll('.reply .trust-btn');
-        const replyDistrustButtons = document.querySelectorAll('.reply .distrust-btn');
+        const replyLikeButtons = document.querySelectorAll('.reply .like-reply-btn');
+        const replyDislikeButtons = document.querySelectorAll('.reply .dislike-reply-btn');
+        const replyTrustButtons = document.querySelectorAll('.reply .trust-reply-btn');
+        const replyDistrustButtons = document.querySelectorAll('.reply .distrust-reply-btn');
+        const replyFlagButtons = document.querySelectorAll('.reply .flag-reply-btn');
         const replyEditButtons = document.querySelectorAll('.reply .edit-reply-btn');
         const replyDeleteButtons = document.querySelectorAll('.reply .delete-reply-btn');
         const replyButtons = document.querySelectorAll('.reply .reply-btn');
@@ -916,6 +923,15 @@ async function loadComments(sortBy = currentSortBy) {
                 }
                 
                 await handleReplyReaction(commentId, replyId, 'distrust');
+            });
+        });
+        replyFlagButtons.forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const replyId = this.getAttribute('data-reply-id');
+                const commentElement = this.closest('.comment');
+                const commentId = commentElement ? commentElement.getAttribute('data-comment-id') : null;
+                if (!replyId || !commentId) return;
+                await handleReplyReaction(commentId, replyId, 'flag');
             });
         });
         
@@ -1052,6 +1068,13 @@ async function handleLikeDislike(commentId, action) {
         }
         const updatedComment = JSON.parse(response.body || '{}');
         console.log('Reaction updated successfully:', updatedComment);
+        // Optimistically update flag count on the target button if applicable
+        if (action === 'flag') {
+            const target = document.querySelector(`.comment[data-comment-id="${commentId}"] .flag-btn`);
+            if (target && updatedComment && typeof updatedComment.flags === 'number') {
+                target.textContent = `🚩 ${updatedComment.flags}`;
+            }
+        }
 
         await loadComments(currentSortBy);
     } catch (error) {
@@ -1088,6 +1111,17 @@ async function handleReplyReaction(commentId, replyId, action) {
             throw new Error(`Failed to update reply reaction: ${errMsg}`);
         }
         const updatedComment = JSON.parse(response.body || '{}');
+        if (action === 'flag') {
+            const target = document.querySelector(`.reply[data-reply-id="${replyId}"] .flag-reply-btn`);
+            // Try to find the reply updated counts if server returns full comment
+            if (target && updatedComment) {
+                try {
+                    const updatedReply = (updatedComment.replies || []).find(r => r._id === replyId) || null;
+                    const count = updatedReply && typeof updatedReply.flags === 'number' ? updatedReply.flags : null;
+                    if (count !== null) target.textContent = `🚩 ${count}`;
+                } catch (e) {}
+            }
+        }
         await loadComments(currentSortBy);
     } catch (error) {
         console.error('Failed to update reply reaction:', error);
@@ -1794,6 +1828,7 @@ function renderComments(comments, userEmail, currentUrl) {
                     <button class="action-btn dislike-btn ${comment.dislikedBy && comment.dislikedBy.includes(userEmail) ? 'disliked' : ''}" data-comment-id="${comment._id}">👎 ${comment.dislikes || 0}</button>
                     <button class="action-btn trust-btn ${comment.trustedBy && comment.trustedBy.includes(userEmail) ? 'trusted' : ''}" data-comment-id="${comment._id}">✅ ${comment.trusts || 0}</button>
                     <button class="action-btn distrust-btn ${comment.distrustedBy && comment.distrustedBy.includes(userEmail) ? 'distrusted' : ''}" data-comment-id="${comment._id}">❌ ${comment.distrusts || 0}</button>
+                    <button class="action-btn flag-btn ${comment.flaggedBy && comment.flaggedBy.includes(userEmail) ? 'flagged' : ''}" data-comment-id="${comment._id}">🚩 ${comment.flags || 0}</button>
                     ${comment.user?.email === userEmail ? `
                         <button class="action-btn edit-btn" data-comment-id="${comment._id}">✏️</button>
                         <button class="action-btn delete-btn" data-comment-id="${comment._id}">🗑️</button>
@@ -1877,6 +1912,7 @@ function renderReplies(replies, level = 1, commentId, userEmail) {
                     <button class="action-btn dislike-reply-btn ${reply.dislikedBy && reply.dislikedBy.includes(userEmail) ? 'disliked' : ''}" data-reply-id="${reply._id}" data-comment-id="${commentId}">👎 ${reply.dislikes || 0}</button>
                     <button class="action-btn trust-reply-btn ${reply.trustedBy && reply.trustedBy.includes(userEmail) ? 'trusted' : ''}" data-reply-id="${reply._id}" data-comment-id="${commentId}">✅ ${reply.trusts || 0}</button>
                     <button class="action-btn distrust-reply-btn ${reply.distrustedBy && reply.distrustedBy.includes(userEmail) ? 'distrusted' : ''}" data-reply-id="${reply._id}" data-comment-id="${commentId}">❌ ${reply.distrusts || 0}</button>
+                    <button class="action-btn flag-reply-btn ${reply.flaggedBy && reply.flaggedBy.includes(userEmail) ? 'flagged' : ''}" data-reply-id="${reply._id}" data-comment-id="${commentId}">🚩 ${reply.flags || 0}</button>
                     <button class="action-btn reply-btn" data-comment-id="${commentId}" data-parent-reply-id="${reply._id || ''}">💬</button>
                     ${reply.user?.email === userEmail ? `
                         <button class="action-btn edit-reply-btn" data-reply-id="${reply._id}" data-comment-id="${commentId}">✏️</button>
@@ -3197,22 +3233,34 @@ function refreshComments() {
 function updateReactionUI(data) {
     const { targetId, targetType, newCounts } = data;
     
-    // Find the reaction buttons for the target
     const targetElement = targetType === 'comment' 
         ? document.querySelector(`[data-comment-id="${targetId}"]`)
         : document.querySelector(`[data-reply-id="${targetId}"]`);
     
-    if (targetElement) {
-        // Update reaction counts
+    if (!targetElement) return;
+    
+    if (targetType === 'comment') {
         const likeBtn = targetElement.querySelector('.like-btn');
         const dislikeBtn = targetElement.querySelector('.dislike-btn');
         const trustBtn = targetElement.querySelector('.trust-btn');
         const distrustBtn = targetElement.querySelector('.distrust-btn');
-        
+        const flagBtn = targetElement.querySelector('.flag-btn');
         if (likeBtn) likeBtn.textContent = `👍 ${newCounts.likes}`;
         if (dislikeBtn) dislikeBtn.textContent = `👎 ${newCounts.dislikes}`;
         if (trustBtn) trustBtn.textContent = `✅ ${newCounts.trusts}`;
         if (distrustBtn) distrustBtn.textContent = `❌ ${newCounts.distrusts}`;
+        if (flagBtn) flagBtn.textContent = `🚩 ${newCounts.flags || 0}`;
+    } else {
+        const likeBtn = targetElement.querySelector('.like-reply-btn');
+        const dislikeBtn = targetElement.querySelector('.dislike-reply-btn');
+        const trustBtn = targetElement.querySelector('.trust-reply-btn');
+        const distrustBtn = targetElement.querySelector('.distrust-reply-btn');
+        const flagBtn = targetElement.querySelector('.flag-reply-btn');
+        if (likeBtn) likeBtn.textContent = `👍 ${newCounts.likes}`;
+        if (dislikeBtn) dislikeBtn.textContent = `👎 ${newCounts.dislikes}`;
+        if (trustBtn) trustBtn.textContent = `✅ ${newCounts.trusts}`;
+        if (distrustBtn) distrustBtn.textContent = `❌ ${newCounts.distrusts}`;
+        if (flagBtn) flagBtn.textContent = `🚩 ${newCounts.flags || 0}`;
     }
 }
 

@@ -3,7 +3,7 @@
     top: 20px;
     right: 20px;
     width: 300px;
-    height: 500px;
+    height: 380px;
     background: white;
     border: 1px solid #e0e0e0;
     border-radius: 24px;
@@ -20,7 +20,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 20px 24px;
+    padding: 10px 12px;
     background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
     border-bottom: 1px solid #e0e0e0;
     border-radius: 24px 24px 0 0;
@@ -29,7 +29,7 @@
 
 .comments-header h3 {
     margin: 0;
-    font-size: 16px;
+    font-size: 14px;
     color: #212529;
 }
 
@@ -45,7 +45,7 @@
 .comments-content {
     flex: 1 1 auto;
     min-height: 0;
-    padding: 16px;
+    padding: 12px 12px 8px;
     overflow-y: auto;
     max-height: unset;
 }
@@ -61,7 +61,7 @@
 }
 
 #comments-list {
-    margin-bottom: 16px;
+    margin-bottom: 6px;
 }
 
 .comment {
@@ -152,7 +152,7 @@
     background: #007bff;
     color: white;
     border: none;
-    padding: 12px 24px;
+    padding: 10px 18px;
     border-radius: 12px;
     cursor: pointer;
     font-weight: 500;
@@ -449,7 +449,7 @@
 .comments-controls {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
 }
 
 /* Custom Dropdown Styles */
@@ -463,10 +463,10 @@
     border: 1px solid #ddd;
     border-radius: 4px;
     background-color: white;
-    font-size: 14px;
+    font-size: 12px;
     cursor: pointer;
     outline: none;
-    min-width: 120px;
+    min-width: 100px;
     display: flex;
     align-items: center;
     justify-content: space-between;
