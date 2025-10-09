@@ -180,7 +180,7 @@ async function createCommentsPanel() {
     panel.innerHTML = `
         <div id="comments-resizer"></div>
         <div class="comments-header" id="comments-header">
-            <h3>Comments</h3>
+            <h3>💬 Comments</h3>
             <div class="comments-controls">
                 <div class="custom-dropdown">
                     <button id="sort-dropdown-btn" class="sort-dropdown-btn">
@@ -202,16 +202,16 @@ async function createCommentsPanel() {
             </div>
         </div>
         <div class="sections-tabs" id="sections-tabs">
-            <button class="section-tab active" data-section="comments">Comments</button>
-            <button class="section-tab" data-section="messages">Messages</button>
-            <button class="section-tab" data-section="trending">Trending</button>
-            <button class="section-tab" data-section="posts">Posts</button>
-            <button class="section-tab" data-section="followers">Followers</button>
-            <button class="section-tab" data-section="following">Following</button>
-            <button class="section-tab" data-section="search">Search</button>
-            <button class="section-tab" data-section="notifications">Notifications</button>
-            <button class="section-tab" data-section="profile">Profile</button>
-            <button class="section-tab" data-section="settings">Settings</button>
+            <button class="section-tab active" data-section="comments" title="Comments">💬</button>
+            <button class="section-tab" data-section="messages" title="Messages">📨</button>
+            <button class="section-tab" data-section="trending" title="Trending">🔥</button>
+            <button class="section-tab" data-section="posts" title="Posts">📝</button>
+            <button class="section-tab" data-section="followers" title="Followers">👥</button>
+            <button class="section-tab" data-section="following" title="Following">➕</button>
+            <button class="section-tab" data-section="search" title="Search">🔍</button>
+            <button class="section-tab" data-section="notifications" title="Notifications">🔔</button>
+            <button class="section-tab" data-section="profile" title="Profile">👤</button>
+            <button class="section-tab" data-section="settings" title="Settings">⚙️</button>
         </div>
         <div class="sections-container hidden" id="sections-container">
             <div class="section-placeholder" data-section="messages">
