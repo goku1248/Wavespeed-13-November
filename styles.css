@@ -35,12 +35,13 @@
     background: #f1f3f5;
     border: 1px solid #dee2e6;
     color: #212529;
-    padding: 6px 10px;
+    padding: 8px 12px;
     border-radius: 999px;
-    font-size: 12px;
+    font-size: 20px;
     cursor: pointer;
     white-space: nowrap;
     position: relative;
+    line-height: 1;
 }
 
 .section-tab.active {
