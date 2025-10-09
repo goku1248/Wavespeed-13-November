@@ -1819,7 +1819,7 @@ async function submitReply(commentId, parentReplyId, replyText) {
         });
 
         console.log('Response status:', response.status);
-        console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+        console.log('Response headers:', response.headers || 'No headers');
 
         if (!response || !response.ok) {
             const errorText = response?.body || '';
