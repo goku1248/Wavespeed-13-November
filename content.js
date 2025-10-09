@@ -1723,15 +1723,23 @@ async function handleLikeDislike(commentId, action) {
         }
         const updatedComment = JSON.parse(response.body || '{}');
         console.log('Reaction updated successfully:', updatedComment);
-        // Optimistically update flag count on the target button if applicable
-        if (action === 'flag') {
-            const target = document.querySelector(`.comment[data-comment-id="${commentId}"] .flag-btn`);
-            if (target && updatedComment && typeof updatedComment.flags === 'number') {
-                target.textContent = `🚩 ${updatedComment.flags}`;
-            }
+        
+        // Update the UI without reloading all comments to prevent flashing
+        const commentElement = document.querySelector(`.comment[data-comment-id="${commentId}"]`);
+        if (commentElement && updatedComment) {
+            // Update counts based on action type
+            const likeBtn = commentElement.querySelector('.like-btn');
+            const dislikeBtn = commentElement.querySelector('.dislike-btn');
+            const trustBtn = commentElement.querySelector('.trust-btn');
+            const distrustBtn = commentElement.querySelector('.distrust-btn');
+            const flagBtn = commentElement.querySelector('.flag-btn');
+            
+            if (likeBtn) likeBtn.textContent = `👍 ${updatedComment.likes || 0}`;
+            if (dislikeBtn) dislikeBtn.textContent = `👎 ${updatedComment.dislikes || 0}`;
+            if (trustBtn) trustBtn.textContent = `✅ ${updatedComment.trusts || 0}`;
+            if (distrustBtn) distrustBtn.textContent = `❌ ${updatedComment.distrusts || 0}`;
+            if (flagBtn) flagBtn.textContent = `🚩 ${updatedComment.flags || 0}`;
         }
-
-        await loadComments(currentSortBy);
     } catch (error) {
         console.error('Failed to update like/dislike:', error);
         // The alert has been removed from here.
@@ -1766,18 +1774,38 @@ async function handleReplyReaction(commentId, replyId, action) {
             throw new Error(`Failed to update reply reaction: ${errMsg}`);
         }
         const updatedComment = JSON.parse(response.body || '{}');
-        if (action === 'flag') {
-            const target = document.querySelector(`.reply[data-reply-id="${replyId}"] .flag-reply-btn`);
-            // Try to find the reply updated counts if server returns full comment
-            if (target && updatedComment) {
-                try {
-                    const updatedReply = (updatedComment.replies || []).find(r => r._id === replyId) || null;
-                    const count = updatedReply && typeof updatedReply.flags === 'number' ? updatedReply.flags : null;
-                    if (count !== null) target.textContent = `🚩 ${count}`;
-                } catch (e) {}
+        
+        // Update the UI without reloading all comments to prevent flashing
+        const replyElement = document.querySelector(`.reply[data-reply-id="${replyId}"]`);
+        if (replyElement && updatedComment) {
+            // Find the updated reply in the response
+            const findReplyRecursive = (replies, id) => {
+                if (!Array.isArray(replies)) return null;
+                for (const reply of replies) {
+                    if (reply._id === id) return reply;
+                    if (reply.replies) {
+                        const found = findReplyRecursive(reply.replies, id);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            };
+            
+            const updatedReply = findReplyRecursive(updatedComment.replies || [], replyId);
+            if (updatedReply) {
+                const likeBtn = replyElement.querySelector('.like-reply-btn');
+                const dislikeBtn = replyElement.querySelector('.dislike-reply-btn');
+                const trustBtn = replyElement.querySelector('.trust-reply-btn');
+                const distrustBtn = replyElement.querySelector('.distrust-reply-btn');
+                const flagBtn = replyElement.querySelector('.flag-reply-btn');
+                
+                if (likeBtn) likeBtn.textContent = `👍 ${updatedReply.likes || 0}`;
+                if (dislikeBtn) dislikeBtn.textContent = `👎 ${updatedReply.dislikes || 0}`;
+                if (trustBtn) trustBtn.textContent = `✅ ${updatedReply.trusts || 0}`;
+                if (distrustBtn) distrustBtn.textContent = `❌ ${updatedReply.distrusts || 0}`;
+                if (flagBtn) flagBtn.textContent = `🚩 ${updatedReply.flags || 0}`;
             }
         }
-        await loadComments(currentSortBy);
     } catch (error) {
         console.error('Failed to update reply reaction:', error);
         // The alert has been removed from here.
