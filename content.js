@@ -681,14 +681,21 @@ async function createCommentsPanel() {
         if (searchBtn && searchInput) {
             async function handleSearch() {
                 const q = (searchInput.value || '').trim();
-                if (!q) return;
+                if (!q) {
+                    // If search is cleared, reload conversations
+                    const convs = await fetchConversations();
+                    renderConversations(convs);
+                    return;
+                }
                 // Query users for prefix match and unique detection
                 const res = await apiFetch(`${API_BASE_URL}/users/search?q=${encodeURIComponent(q)}`);
                 if (res?.ok) {
                     let payload = {};
                     try { payload = JSON.parse(res.body || '{}'); } catch (_) {}
                     const unique = payload.unique;
+                    const results = payload.results || [];
                     const list = document.getElementById('conversations-list');
+                    
                     if (unique && unique.email) {
                         // Show the resolved username immediately and select conversation
                         selectedConversationEmail = unique.email;
@@ -696,29 +703,51 @@ async function createCommentsPanel() {
                         // Prepend to conversations list for quick access
                         if (list) {
                             const btn = document.createElement('button');
-                            btn.className = 'conversation-item';
-                            btn.textContent = unique.name ? `${unique.name} (${unique.email})` : unique.email;
+                            btn.className = 'conversation-item-modern';
+                            btn.innerHTML = `
+                                <div class="conversation-avatar-modern">${unique.picture ? `<img src="${unique.picture}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />` : '👤'}</div>
+                                <div class="conversation-info-modern">
+                                    <div class="conversation-name-modern">${unique.name || unique.email}</div>
+                                    <div class="conversation-preview">${unique.email}</div>
+                                </div>
+                            `;
                             btn.addEventListener('click', async () => {
                                 selectedConversationEmail = unique.email;
                                 await loadThread(unique.email);
                             });
                             list.prepend(btn);
                         }
-                    } else {
+                    } else if (results.length > 0) {
                         // Render top results for disambiguation
-                        const list = document.getElementById('conversations-list');
                         if (list) {
                             list.innerHTML = '';
-                            (payload.results || []).forEach((u) => {
+                            results.forEach((u) => {
                                 const btn = document.createElement('button');
-                                btn.className = 'conversation-item';
-                                btn.textContent = u.name ? `${u.name} (${u.email})` : u.email;
+                                btn.className = 'conversation-item-modern';
+                                btn.innerHTML = `
+                                    <div class="conversation-avatar-modern">${u.picture ? `<img src="${u.picture}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />` : '👤'}</div>
+                                    <div class="conversation-info-modern">
+                                        <div class="conversation-name-modern">${u.name || u.email}</div>
+                                        <div class="conversation-preview">${u.email}</div>
+                                    </div>
+                                `;
                                 btn.addEventListener('click', async () => {
                                     selectedConversationEmail = u.email;
                                     await loadThread(u.email);
                                 });
                                 list.appendChild(btn);
                             });
+                        }
+                    } else {
+                        // No results found
+                        if (list) {
+                            list.innerHTML = `
+                                <div class="empty-state-modern">
+                                    <div class="icon">🔍</div>
+                                    <h3>No users found</h3>
+                                    <p>The user "${q}" hasn't used Wavespeed yet. They need to install the extension first.</p>
+                                </div>
+                            `;
                         }
                     }
                 }
