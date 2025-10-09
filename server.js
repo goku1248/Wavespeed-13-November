@@ -185,6 +185,76 @@ const separateReplySchema = new mongoose.Schema({
 
 const SeparateReply = mongoose.model('SeparateReply', separateReplySchema);
 
+// Message Schema (Direct messages between users and group messages)
+const messageSchema = new mongoose.Schema({
+    from: {
+        name: String,
+        email: String,
+        picture: String
+    },
+    to: {
+        name: String,
+        email: String,
+        picture: String
+    },
+    participants: [String], // [from.email, to.email] for direct messages, or all group members for group messages
+    text: { type: String, required: true },
+    timestamp: { type: Date, default: Date.now },
+    read: { type: Boolean, default: false },
+    // Group messaging fields
+    isGroupMessage: { type: Boolean, default: false },
+    groupId: { type: String, index: true }, // Reference to group for group messages
+    groupName: String // Group name for display purposes
+});
+
+messageSchema.index({ participants: 1, timestamp: 1 });
+messageSchema.index({ groupId: 1, timestamp: 1 });
+
+const Message = mongoose.model('Message', messageSchema);
+
+// Group Schema for group conversations
+const groupSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    description: String,
+    createdBy: {
+        name: String,
+        email: String,
+        picture: String
+    },
+    members: [{
+        name: String,
+        email: String,
+        picture: String,
+        joinedAt: { type: Date, default: Date.now },
+        role: { type: String, enum: ['admin', 'member'], default: 'member' }
+    }],
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+});
+
+groupSchema.pre('save', function(next) {
+    this.updatedAt = new Date();
+    next();
+});
+
+const Group = mongoose.model('Group', groupSchema);
+
+// User Schema (registered extension users)
+const userSchema = new mongoose.Schema({
+    email: { type: String, required: true, unique: true, index: true },
+    name: { type: String, required: true, index: true },
+    picture: String,
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+});
+
+userSchema.pre('save', function(next) {
+    this.updatedAt = new Date();
+    next();
+});
+
+const User = mongoose.model('User', userSchema);
+
 // Recursively find a reply by ID in a nested replies array
 function findReplyById(replies, replyId) {
   // Validate input
@@ -421,6 +491,318 @@ app.get('/api/comments', async (req, res) => {
     }
 });
 
+// Messages APIs
+// List conversations for a user (distinct users they've messaged with)
+app.get('/api/messages/conversations', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { email } = req.query;
+        if (!email) return res.status(400).json({ error: 'email is required' });
+
+        const conversations = await Message.aggregate([
+            { $match: { participants: email } },
+            { $sort: { timestamp: -1 } },
+            { $group: {
+                _id: {
+                    other: {
+                        $cond: [ { $eq: [ '$from.email', email ] }, '$to.email', '$from.email' ]
+                    }
+                },
+                lastMessage: { $first: '$$ROOT' }
+            } },
+            { $project: {
+                _id: 0,
+                otherEmail: '$_id.other',
+                lastMessage: 1
+            } }
+        ]);
+
+        res.json(conversations);
+    } catch (error) {
+        console.error('Error listing conversations:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get messages between two users
+app.get('/api/messages', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { userEmail, otherEmail, limit = 50 } = req.query;
+        if (!userEmail || !otherEmail) return res.status(400).json({ error: 'userEmail and otherEmail are required' });
+
+        const messages = await Message.find({
+            participants: { $all: [userEmail, otherEmail] }
+        }).sort({ timestamp: -1 }).limit(Number(limit));
+
+        res.json(messages.reverse());
+    } catch (error) {
+        console.error('Error fetching messages:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Send a new message
+app.post('/api/messages', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { from, to, text, groupId, groupName } = req.body;
+        
+        // Handle group messages
+        if (groupId) {
+            if (!from || !from.email || !text) {
+                return res.status(400).json({ error: 'from, text, and groupId are required for group messages' });
+            }
+            
+            // Verify user is member of the group
+            const group = await Group.findById(groupId);
+            if (!group) {
+                return res.status(404).json({ error: 'Group not found' });
+            }
+            
+            const isMember = group.members.some(member => member.email === from.email);
+            if (!isMember) {
+                return res.status(403).json({ error: 'You are not a member of this group' });
+            }
+            
+            const msg = new Message({
+                from,
+                participants: group.members.map(m => m.email),
+                text,
+                isGroupMessage: true,
+                groupId,
+                groupName: groupName || group.name
+            });
+            const saved = await msg.save();
+            
+            // Emit to all group members
+            group.members.forEach(member => {
+                io.to(`user:${member.email}`).emit('message-received', saved);
+            });
+            
+            res.json(saved);
+        } else {
+            // Handle direct messages (existing logic)
+            if (!from || !to || !from.email || !to.email || !text) {
+                return res.status(400).json({ error: 'from, to, and text are required' });
+            }
+
+            const msg = new Message({
+                from,
+                to,
+                participants: [from.email, to.email],
+                text
+            });
+            const saved = await msg.save();
+
+            // Emit to recipient room (by email) and to sender
+            io.to(`user:${to.email}`).emit('message-received', saved);
+            io.to(`user:${from.email}`).emit('message-sent', saved);
+
+            res.json(saved);
+        }
+    } catch (error) {
+        console.error('Error sending message:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Group Management APIs
+
+// Create a new group
+app.post('/api/groups', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { name, description, createdBy, members = [] } = req.body;
+        
+        if (!name || !createdBy || !createdBy.email) {
+            return res.status(400).json({ error: 'name and createdBy are required' });
+        }
+        
+        // Add creator as admin member
+        const allMembers = [
+            { ...createdBy, role: 'admin' },
+            ...members.filter(member => member.email !== createdBy.email)
+        ];
+        
+        const group = new Group({
+            name,
+            description,
+            createdBy,
+            members: allMembers
+        });
+        
+        const saved = await group.save();
+        res.json(saved);
+    } catch (error) {
+        console.error('Error creating group:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get user's groups
+app.get('/api/groups', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { email } = req.query;
+        
+        if (!email) {
+            return res.status(400).json({ error: 'email is required' });
+        }
+        
+        const groups = await Group.find({
+            'members.email': email
+        }).sort({ updatedAt: -1 });
+        
+        res.json(groups);
+    } catch (error) {
+        console.error('Error fetching groups:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get group messages
+app.get('/api/groups/:groupId/messages', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { groupId } = req.params;
+        const { userEmail, limit = 50 } = req.query;
+        
+        if (!userEmail) {
+            return res.status(400).json({ error: 'userEmail is required' });
+        }
+        
+        // Verify user is member of the group
+        const group = await Group.findById(groupId);
+        if (!group) {
+            return res.status(404).json({ error: 'Group not found' });
+        }
+        
+        const isMember = group.members.some(member => member.email === userEmail);
+        if (!isMember) {
+            return res.status(403).json({ error: 'You are not a member of this group' });
+        }
+        
+        const messages = await Message.find({
+            groupId,
+            isGroupMessage: true
+        }).sort({ timestamp: -1 }).limit(Number(limit));
+        
+        res.json(messages.reverse());
+    } catch (error) {
+        console.error('Error fetching group messages:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Add member to group
+app.post('/api/groups/:groupId/members', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { groupId } = req.params;
+        const { member, addedBy } = req.body;
+        
+        if (!member || !member.email || !addedBy || !addedBy.email) {
+            return res.status(400).json({ error: 'member and addedBy are required' });
+        }
+        
+        const group = await Group.findById(groupId);
+        if (!group) {
+            return res.status(404).json({ error: 'Group not found' });
+        }
+        
+        // Check if the person adding is an admin
+        const adminMember = group.members.find(m => m.email === addedBy.email);
+        if (!adminMember || adminMember.role !== 'admin') {
+            return res.status(403).json({ error: 'Only admins can add members' });
+        }
+        
+        // Check if member already exists
+        const existingMember = group.members.find(m => m.email === member.email);
+        if (existingMember) {
+            return res.status(400).json({ error: 'Member already exists in group' });
+        }
+        
+        group.members.push({ ...member, role: 'member' });
+        await group.save();
+        
+        res.json(group);
+    } catch (error) {
+        console.error('Error adding member to group:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Remove member from group
+app.delete('/api/groups/:groupId/members/:memberEmail', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { groupId, memberEmail } = req.params;
+        const { removedBy } = req.body;
+        
+        if (!removedBy || !removedBy.email) {
+            return res.status(400).json({ error: 'removedBy is required' });
+        }
+        
+        const group = await Group.findById(groupId);
+        if (!group) {
+            return res.status(404).json({ error: 'Group not found' });
+        }
+        
+        // Check if the person removing is an admin or removing themselves
+        const adminMember = group.members.find(m => m.email === removedBy.email);
+        if (!adminMember || (adminMember.role !== 'admin' && removedBy.email !== memberEmail)) {
+            return res.status(403).json({ error: 'Only admins can remove other members' });
+        }
+        
+        group.members = group.members.filter(m => m.email !== memberEmail);
+        await group.save();
+        
+        res.json(group);
+    } catch (error) {
+        console.error('Error removing member from group:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Users APIs
+// Register/update the current user
+app.post('/api/users/register', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { email, name, picture } = req.body || {};
+        if (!email || !name) return res.status(400).json({ error: 'email and name are required' });
+
+        const updated = await User.findOneAndUpdate(
+            { email },
+            { email, name, picture, updatedAt: new Date() },
+            { new: true, upsert: true }
+        );
+        res.json(updated);
+    } catch (error) {
+        console.error('Error registering user:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Search users by prefix; if unique match, return that user immediately
+app.get('/api/users/search', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { q, limit = 10 } = req.query;
+        if (!q || String(q).trim().length === 0) return res.json([]);
+        const regex = new RegExp('^' + String(q).trim(), 'i');
+        const results = await User.find({ $or: [{ name: regex }, { email: regex }] })
+            .sort({ name: 1 })
+            .limit(Number(limit));
+
+        res.json({ results, unique: results.length === 1 ? results[0] : null });
+    } catch (error) {
+        console.error('Error searching users:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Create a new comment
 app.post('/api/comments', async (req, res) => {
     try {
@@ -626,6 +1008,7 @@ app.put('/api/comments/:commentId/reaction', async (req, res) => {
         if (!comment) {
             return res.status(404).json({ error: 'Comment not found' });
         }
+
 
         // Ensure reaction fields exist for legacy documents
         if (!Array.isArray(comment.likedBy)) comment.likedBy = [];
@@ -1267,6 +1650,19 @@ io.on('connection', (socket) => {
         // Send current active users to the new user
         const currentUsers = Array.from(activeUsers.get(url).values());
         socket.emit('active-users', currentUsers);
+    });
+
+    // Join user-specific room for direct messages
+    socket.on('join-user', (data) => {
+        try {
+            const { email } = data || {};
+            if (!email) return;
+            socket.join(`user:${email}`);
+            socket.userEmail = email;
+            console.log(`Socket ${socket.id} joined user room: user:${email}`);
+        } catch (e) {
+            console.error('join-user error:', e);
+        }
     });
     
     // Handle new comments

@@ -12,8 +12,8 @@ function initializeWebSocket() {
     
     // Load Socket.IO client library
     const script = document.createElement('script');
-    // Load from localhost to satisfy strict page CSP allowing localhost only
-    script.src = 'http://localhost:3000/socket.io/socket.io.js';
+    // Load from backend server port
+    script.src = 'http://localhost:3001/socket.io/socket.io.js';
     script.onload = () => {
         console.log('Socket.IO loaded, connecting...');
         connectWebSocket();
@@ -24,7 +24,7 @@ function initializeWebSocket() {
 function connectWebSocket() {
     // Guard against mixed-content errors on HTTPS pages by skipping WS init if blocked
     try {
-        socket = io('http://localhost:3000');
+        socket = io('http://localhost:3001');
     } catch (e) {
         console.warn('Socket.IO connection skipped due to mixed content:', e?.message || e);
         return;
@@ -37,6 +37,8 @@ function connectWebSocket() {
                 url: window.location.href,
                 user: currentUser
             });
+            // Also join user-specific room for direct messages
+            socket.emit('join-user', { email: currentUser.email });
         }
     });
     
@@ -94,6 +96,72 @@ function setupWebSocketListeners() {
         console.log('User scroll:', data);
         showCollaborativeCursor(data);
     });
+
+    // Real-time direct messages
+    socket.on('message-received', async (msg) => {
+        console.log('Message received via socket:', msg);
+        try {
+            if (!msg || !currentUser) return;
+            // If the open thread is with the sender, append and scroll
+            const list = document.getElementById('messages-thread-list');
+            const header = document.getElementById('messages-thread-header');
+            const activeEmail = header && header.textContent?.startsWith('Chat with ')
+                ? header.textContent.replace('Chat with ', '')
+                : null;
+            if (list && activeEmail && msg.from && msg.from.email === activeEmail) {
+                const item = document.createElement('div');
+                item.className = 'message-item from-them';
+                item.textContent = msg.text;
+                list.appendChild(item);
+                list.scrollTop = list.scrollHeight;
+            } else {
+                // Increment badge on Messages tab (if not in messages section)
+                if (activeSectionKey !== 'messages') {
+                    const tabsBar = document.getElementById('sections-tabs');
+                    const messagesTab = tabsBar && tabsBar.querySelector('.section-tab[data-section="messages"]');
+                    if (messagesTab) {
+                        let badge = messagesTab.querySelector('.tab-badge');
+                        if (!badge) {
+                            badge = document.createElement('span');
+                            badge.className = 'tab-badge';
+                            badge.textContent = '1';
+                            messagesTab.appendChild(badge);
+                        } else {
+                            const n = parseInt(badge.textContent || '0', 10) || 0;
+                            badge.textContent = String(n + 1);
+                        }
+                    }
+                }
+                // In-panel toast notification
+                try {
+                    showNotification(`${msg.from?.name || msg.from?.email || 'Someone'} messaged you`, 'message');
+                } catch (_) {}
+            }
+        } catch (e) {
+            console.warn('Failed to render incoming message:', e);
+        }
+    });
+
+    socket.on('message-sent', async (msg) => {
+        console.log('Message sent ack via socket:', msg);
+        try {
+            if (!msg || !currentUser) return;
+            const list = document.getElementById('messages-thread-list');
+            const header = document.getElementById('messages-thread-header');
+            const activeEmail = header && header.textContent?.startsWith('Chat with ')
+                ? header.textContent.replace('Chat with ', '')
+                : null;
+            if (list && activeEmail && msg.to && msg.to.email === activeEmail) {
+                const item = document.createElement('div');
+                item.className = 'message-item from-me';
+                item.textContent = msg.text;
+                list.appendChild(item);
+                list.scrollTop = list.scrollHeight;
+            }
+        } catch (e) {
+            console.warn('Failed to render sent message:', e);
+        }
+    });
 }
 
 // Create and inject the comments panel
@@ -132,6 +200,57 @@ async function createCommentsPanel() {
                 <button id="maximize-comments" title="Maximize" style="font-size:24px; background:none; border:none; cursor:pointer; margin-left:4px;">⬜</button>
                 <button id="close-comments" title="Close" style="font-size:20px; background:none; border:none; cursor:pointer; margin-left:4px; color:#ff4444;">✕</button>
             </div>
+        </div>
+        <div class="sections-tabs" id="sections-tabs">
+            <button class="section-tab active" data-section="comments">Comments</button>
+            <button class="section-tab" data-section="messages">Messages</button>
+            <button class="section-tab" data-section="trending">Trending</button>
+            <button class="section-tab" data-section="posts">Posts</button>
+            <button class="section-tab" data-section="followers">Followers</button>
+            <button class="section-tab" data-section="following">Following</button>
+            <button class="section-tab" data-section="search">Search</button>
+            <button class="section-tab" data-section="notifications">Notifications</button>
+            <button class="section-tab" data-section="profile">Profile</button>
+            <button class="section-tab" data-section="settings">Settings</button>
+        </div>
+        <div class="sections-container hidden" id="sections-container">
+            <div class="section-placeholder" data-section="messages">
+                <div class="messages-panel">
+                    <div class="messages-sidebar">
+                        <div class="messages-tabs">
+                            <button id="direct-messages-tab" class="messages-tab active">Direct</button>
+                            <button id="group-messages-tab" class="messages-tab">Groups</button>
+                        </div>
+                        <div class="messages-search">
+                            <input id="messages-search-input" type="text" placeholder="Search users by email..." />
+                            <button id="messages-search-btn">🔍</button>
+                        </div>
+                        <div id="conversations-list" class="conversations-list"></div>
+                        <div id="groups-list" class="groups-list" style="display: none;">
+                            <div class="groups-header">
+                                <button id="create-group-btn" class="create-group-btn">+ Create Group</button>
+                            </div>
+                            <div id="groups-items" class="groups-items"></div>
+                        </div>
+                    </div>
+                    <div class="messages-thread">
+                        <div id="messages-thread-header" class="messages-thread-header">Select a conversation</div>
+                        <div id="messages-thread-list" class="messages-thread-list"></div>
+                        <div class="messages-input">
+                            <input id="messages-input-text" type="text" placeholder="Type a message..." />
+                            <button id="messages-send-btn">Send</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="section-placeholder" data-section="trending">Trending coming soon</div>
+            <div class="section-placeholder" data-section="posts">Posts coming soon</div>
+            <div class="section-placeholder" data-section="followers">Followers coming soon</div>
+            <div class="section-placeholder" data-section="following">Following coming soon</div>
+            <div class="section-placeholder" data-section="search">Search coming soon</div>
+            <div class="section-placeholder" data-section="notifications">Notifications coming soon</div>
+            <div class="section-placeholder" data-section="profile">Profile coming soon</div>
+            <div class="section-placeholder" data-section="settings">Settings coming soon</div>
         </div>
         <div class="comments-content">
             <div id="auth-message" class="auth-message hidden">
@@ -257,6 +376,443 @@ async function createCommentsPanel() {
             if (!dropdownBtn.contains(e.target) && !dropdownMenu.contains(e.target)) {
                 dropdownMenu.classList.remove('show');
             }
+        });
+    }
+
+    // Sections tabs logic (top horizontal bar)
+    const tabsBar = panel.querySelector('#sections-tabs');
+    const tabs = tabsBar ? tabsBar.querySelectorAll('.section-tab') : [];
+    const sectionsContainer = panel.querySelector('#sections-container');
+    const commentsContentEl = panel.querySelector('.comments-content');
+    const sortControlsEl = panel.querySelector('.custom-dropdown');
+
+    // Messages state
+    let selectedConversationEmail = null;
+    let selectedGroupId = null;
+    let selectedGroupName = null;
+    let messagesPollTimer = null;
+    let conversationsPollTimer = null;
+    let groupsPollTimer = null;
+    let messagesLastSeenByOther = {};
+    let activeSectionKey = 'comments';
+    let currentMessagesTab = 'direct'; // 'direct' or 'groups'
+
+    function renderConversations(conversations) {
+        const list = document.getElementById('conversations-list');
+        if (!list) return;
+        list.innerHTML = '';
+        conversations.forEach((c) => {
+            const other = c.otherEmail || (c.lastMessage && (c.lastMessage.from.email === currentUser?.email ? c.lastMessage.to.email : c.lastMessage.from.email));
+            const btn = document.createElement('button');
+            btn.className = 'conversation-item';
+            btn.textContent = other;
+            btn.addEventListener('click', async () => {
+                selectedConversationEmail = other;
+                await loadThread(other);
+            });
+            list.appendChild(btn);
+        });
+    }
+
+    async function fetchConversations() {
+        if (!currentUser?.email) return [];
+        const response = await apiFetch(`${API_BASE_URL}/messages/conversations?email=${encodeURIComponent(currentUser.email)}`);
+        if (response?.ok) {
+            try { return JSON.parse(response.body || '[]'); } catch (_) { return []; }
+        }
+        return [];
+    }
+
+    async function fetchGroups() {
+        if (!currentUser?.email) return [];
+        const response = await apiFetch(`${API_BASE_URL}/groups?email=${encodeURIComponent(currentUser.email)}`);
+        if (response?.ok) {
+            try { return JSON.parse(response.body || '[]'); } catch (_) { return []; }
+        }
+        return [];
+    }
+
+    function renderGroups(groups) {
+        const list = document.getElementById('groups-items');
+        if (!list) return;
+        list.innerHTML = '';
+        groups.forEach((group) => {
+            const btn = document.createElement('button');
+            btn.className = 'group-item';
+            btn.innerHTML = `
+                <div class="group-name">${group.name}</div>
+                <div class="group-members">${group.members.length} members</div>
+            `;
+            btn.addEventListener('click', async () => {
+                selectedGroupId = group._id;
+                selectedGroupName = group.name;
+                selectedConversationEmail = null; // Clear direct message selection
+                await loadGroupThread(group._id, group.name);
+            });
+            list.appendChild(btn);
+        });
+    }
+
+    async function loadGroupThread(groupId, groupName) {
+        const header = document.getElementById('messages-thread-header');
+        const list = document.getElementById('messages-thread-list');
+        if (header) header.textContent = `Group: ${groupName}`;
+        if (!groupId || !currentUser?.email || !list) return;
+        
+        const response = await apiFetch(`${API_BASE_URL}/groups/${groupId}/messages?userEmail=${encodeURIComponent(currentUser.email)}&limit=100`);
+        let messages = [];
+        if (response?.ok) { 
+            try { messages = JSON.parse(response.body || '[]'); } catch (_) {} 
+        }
+        list.innerHTML = '';
+        messages.forEach((msg) => {
+            const item = document.createElement('div');
+            item.className = msg.from.email === currentUser.email ? 'message-item from-me' : 'message-item from-them';
+            item.innerHTML = `
+                <div class="message-sender">${msg.from.name || msg.from.email}</div>
+                <div class="message-text">${msg.text}</div>
+                <div class="message-time">${new Date(msg.timestamp).toLocaleTimeString()}</div>
+            `;
+            list.appendChild(item);
+        });
+        list.scrollTop = list.scrollHeight;
+    }
+
+    async function createGroup() {
+        const name = prompt('Enter group name:');
+        if (!name || !name.trim()) return;
+        
+        const description = prompt('Enter group description (optional):') || '';
+        
+        if (!currentUser) {
+            alert('Please log in to create a group');
+            return;
+        }
+        
+        try {
+            const response = await apiFetch(`${API_BASE_URL}/groups`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: {
+                    name: name.trim(),
+                    description: description.trim(),
+                    createdBy: currentUser,
+                    members: [] // Start with just the creator
+                }
+            });
+            
+            if (response?.ok) {
+                // Refresh groups list
+                const groups = await fetchGroups();
+                renderGroups(groups);
+                alert('Group created successfully!');
+            } else {
+                alert('Failed to create group');
+            }
+        } catch (error) {
+            console.error('Error creating group:', error);
+            alert('Error creating group: ' + error.message);
+        }
+    }
+
+    function updateMessagesBadge(unreadCount) {
+        const tabsBar = document.getElementById('sections-tabs');
+        const messagesTab = tabsBar && tabsBar.querySelector('.section-tab[data-section="messages"]');
+        if (!messagesTab) return;
+        let badge = messagesTab.querySelector('.tab-badge');
+        if (unreadCount > 0) {
+            if (!badge) {
+                badge = document.createElement('span');
+                badge.className = 'tab-badge';
+                messagesTab.appendChild(badge);
+            }
+            badge.textContent = String(unreadCount);
+        } else if (badge) {
+            badge.remove();
+        }
+    }
+
+    async function loadThread(otherEmail) {
+        const header = document.getElementById('messages-thread-header');
+        const list = document.getElementById('messages-thread-list');
+        if (header) header.textContent = otherEmail ? `Chat with ${otherEmail}` : 'Select a conversation';
+        if (!otherEmail || !currentUser?.email || !list) return;
+        const response = await apiFetch(`${API_BASE_URL}/messages?userEmail=${encodeURIComponent(currentUser.email)}&otherEmail=${encodeURIComponent(otherEmail)}&limit=100`);
+        let messages = [];
+        if (response?.ok) { try { messages = JSON.parse(response.body || '[]'); } catch (_) {} }
+        list.innerHTML = '';
+        messages.forEach((m) => {
+            const item = document.createElement('div');
+            item.className = `message-item ${m.from?.email === currentUser.email ? 'from-me' : 'from-them'}`;
+            item.textContent = m.text;
+            list.appendChild(item);
+        });
+        list.scrollTop = list.scrollHeight;
+
+        // Update last-seen for this conversation
+        try {
+            const latestTs = messages.length ? new Date(messages[messages.length - 1].timestamp).getTime() : Date.now();
+            messagesLastSeenByOther[otherEmail] = latestTs;
+            await chrome.storage.local.set({ messagesLastSeenByOther });
+            // Clear badge since thread is open
+            updateMessagesBadge(0);
+        } catch (_) {}
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('messages-input-text');
+        if (!input || !input.value.trim() || !currentUser) return;
+        
+        const text = input.value.trim();
+        let payload;
+        
+        if (selectedGroupId) {
+            // Send group message
+            payload = { 
+                from: currentUser, 
+                text, 
+                groupId: selectedGroupId, 
+                groupName: selectedGroupName 
+            };
+        } else if (selectedConversationEmail) {
+            // Send direct message
+            payload = { 
+                from: currentUser, 
+                to: { email: selectedConversationEmail }, 
+                text 
+            };
+        } else {
+            return; // No conversation selected
+        }
+        
+        const res = await apiFetch(`${API_BASE_URL}/messages`, { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: payload 
+        });
+        
+        if (res?.ok) {
+            input.value = '';
+            if (selectedGroupId) {
+                await loadGroupThread(selectedGroupId, selectedGroupName);
+            } else {
+                await loadThread(selectedConversationEmail);
+            }
+        }
+    }
+
+    function clearMessagePolling() {
+        if (messagesPollTimer) { clearInterval(messagesPollTimer); messagesPollTimer = null; }
+        if (conversationsPollTimer) { clearInterval(conversationsPollTimer); conversationsPollTimer = null; }
+        if (groupsPollTimer) { clearInterval(groupsPollTimer); groupsPollTimer = null; }
+    }
+
+    function switchMessagesTab(tab) {
+        currentMessagesTab = tab;
+        const directTab = document.getElementById('direct-messages-tab');
+        const groupsTab = document.getElementById('group-messages-tab');
+        const conversationsList = document.getElementById('conversations-list');
+        const groupsList = document.getElementById('groups-list');
+        
+        if (tab === 'direct') {
+            directTab?.classList.add('active');
+            groupsTab?.classList.remove('active');
+            conversationsList?.style.setProperty('display', 'block');
+            groupsList?.style.setProperty('display', 'none');
+        } else {
+            directTab?.classList.remove('active');
+            groupsTab?.classList.add('active');
+            conversationsList?.style.setProperty('display', 'none');
+            groupsList?.style.setProperty('display', 'block');
+        }
+    }
+
+    async function initMessagesUI() {
+        const sendBtn = document.getElementById('messages-send-btn');
+        const input = document.getElementById('messages-input-text');
+        const searchBtn = document.getElementById('messages-search-btn');
+        const searchInput = document.getElementById('messages-search-input');
+        const directTab = document.getElementById('direct-messages-tab');
+        const groupsTab = document.getElementById('group-messages-tab');
+        const createGroupBtn = document.getElementById('create-group-btn');
+        
+        if (sendBtn) sendBtn.addEventListener('click', sendMessage);
+        if (input) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+        if (directTab) directTab.addEventListener('click', () => switchMessagesTab('direct'));
+        if (groupsTab) groupsTab.addEventListener('click', () => switchMessagesTab('groups'));
+        if (createGroupBtn) createGroupBtn.addEventListener('click', createGroup);
+        if (searchBtn && searchInput) {
+            async function handleSearch() {
+                const q = (searchInput.value || '').trim();
+                if (!q) return;
+                // Query users for prefix match and unique detection
+                const res = await apiFetch(`${API_BASE_URL}/users/search?q=${encodeURIComponent(q)}`);
+                if (res?.ok) {
+                    let payload = {};
+                    try { payload = JSON.parse(res.body || '{}'); } catch (_) {}
+                    const unique = payload.unique;
+                    const list = document.getElementById('conversations-list');
+                    if (unique && unique.email) {
+                        // Show the resolved username immediately and select conversation
+                        selectedConversationEmail = unique.email;
+                        await loadThread(unique.email);
+                        // Prepend to conversations list for quick access
+                        if (list) {
+                            const btn = document.createElement('button');
+                            btn.className = 'conversation-item';
+                            btn.textContent = unique.name ? `${unique.name} (${unique.email})` : unique.email;
+                            btn.addEventListener('click', async () => {
+                                selectedConversationEmail = unique.email;
+                                await loadThread(unique.email);
+                            });
+                            list.prepend(btn);
+                        }
+                    } else {
+                        // Render top results for disambiguation
+                        const list = document.getElementById('conversations-list');
+                        if (list) {
+                            list.innerHTML = '';
+                            (payload.results || []).forEach((u) => {
+                                const btn = document.createElement('button');
+                                btn.className = 'conversation-item';
+                                btn.textContent = u.name ? `${u.name} (${u.email})` : u.email;
+                                btn.addEventListener('click', async () => {
+                                    selectedConversationEmail = u.email;
+                                    await loadThread(u.email);
+                                });
+                                list.appendChild(btn);
+                            });
+                        }
+                    }
+                }
+            }
+            searchBtn.addEventListener('click', handleSearch);
+            searchInput.addEventListener('input', async () => {
+                const q = (searchInput.value || '').trim();
+                if (q.length < 2) return; // debounce small inputs
+                await handleSearch();
+            });
+        }
+        // Register/update the user to ensure they are searchable
+        if (currentUser?.email) {
+            apiFetch(`${API_BASE_URL}/users/register`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: { email: currentUser.email, name: currentUser.name, picture: currentUser.picture }
+            }).catch(() => {});
+        }
+
+        // Load last-seen map
+        try {
+            const stored = await chrome.storage.local.get(['messagesLastSeenByOther']);
+            messagesLastSeenByOther = stored?.messagesLastSeenByOther || {};
+        } catch (_) { messagesLastSeenByOther = {}; }
+
+        // initial data
+        fetchConversations().then(renderConversations);
+        fetchGroups().then(renderGroups);
+
+        // Start polling conversations every 12s
+        clearMessagePolling();
+        conversationsPollTimer = setInterval(async () => {
+            const convs = await fetchConversations();
+            renderConversations(convs);
+            // Compute unread if not on messages section
+            if (activeSectionKey !== 'messages') {
+                let unread = 0;
+                convs.forEach((c) => {
+                    const other = c.otherEmail || (c.lastMessage && (c.lastMessage.from.email === currentUser?.email ? c.lastMessage.to.email : c.lastMessage.from.email));
+                    const lastSeen = messagesLastSeenByOther[other] || 0;
+                    const msgTs = c.lastMessage ? new Date(c.lastMessage.timestamp).getTime() : 0;
+                    if (other && msgTs > lastSeen) unread += 1;
+                });
+                updateMessagesBadge(unread);
+            }
+        }, 12000);
+
+        // Start polling groups every 15s
+        groupsPollTimer = setInterval(async () => {
+            const groups = await fetchGroups();
+            renderGroups(groups);
+        }, 15000);
+
+        // Start polling current thread every 3s
+        messagesPollTimer = setInterval(async () => {
+            if (selectedConversationEmail) {
+                await loadThread(selectedConversationEmail);
+            }
+        }, 3000);
+    }
+
+    async function setActiveSection(sectionKey) {
+        activeSectionKey = sectionKey;
+        // Update tab active state
+        tabs.forEach((btn) => {
+            const isActive = btn.getAttribute('data-section') === sectionKey;
+            if (isActive) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+
+        // Toggle containers: show comments for 'comments', else show sections container
+        if (sectionKey === 'comments') {
+            if (sectionsContainer) sectionsContainer.classList.add('hidden');
+            if (commentsContentEl) commentsContentEl.style.display = 'block';
+            if (sortControlsEl) sortControlsEl.style.display = '';
+        } else {
+            if (sectionsContainer) sectionsContainer.classList.remove('hidden');
+            if (commentsContentEl) commentsContentEl.style.display = 'none';
+            if (sortControlsEl) sortControlsEl.style.display = 'none';
+
+            // Show only the selected placeholder inside sections container
+            if (sectionsContainer) {
+                const allPlaceholders = sectionsContainer.querySelectorAll('.section-placeholder');
+                allPlaceholders.forEach((el) => {
+                    const match = el.getAttribute('data-section') === sectionKey;
+                    el.style.display = match ? 'block' : 'none';
+                });
+            }
+
+            // Initialize messages UI when entering messages tab
+            if (sectionKey === 'messages') {
+                // Clear badge when opening messages
+                const tabsBar = document.getElementById('sections-tabs');
+                const messagesTab = tabsBar && tabsBar.querySelector('.section-tab[data-section="messages"]');
+                if (messagesTab) {
+                    const badge = messagesTab.querySelector('.tab-badge');
+                    if (badge) badge.remove();
+                }
+                initMessagesUI();
+            } else {
+                // Leaving messages: stop polling
+                clearMessagePolling();
+            }
+        }
+
+        try {
+            const state = await chrome.storage.local.get(['activeSection']);
+            await chrome.storage.local.set({ activeSection: sectionKey });
+        } catch (e) {}
+    }
+
+    // Initialize active section from storage
+    try {
+        chrome.storage.local.get(['activeSection']).then((res) => {
+            const initial = res && res.activeSection ? res.activeSection : 'comments';
+            setActiveSection(initial);
+        }).catch(() => setActiveSection('comments'));
+    } catch (e) {
+        setActiveSection('comments');
+    }
+
+    // Wire click handlers
+    if (tabs && tabs.length) {
+        tabs.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const key = btn.getAttribute('data-section') || 'comments';
+                setActiveSection(key);
+            });
         });
     }
 
@@ -625,20 +1181,57 @@ function createComment({text, user, timestamp}) {
 }
 
 const API_BASE_URL = 'http://localhost:3001/api';
+// Base server URL (without /api) for endpoints like /health
+const SERVER_BASE_URL = 'http://localhost:3001';
+
+// Server health check function
+async function checkServerHealth() {
+    try {
+        const response = await apiFetch(`${SERVER_BASE_URL}/health`);
+        return response && response.ok;
+    } catch (error) {
+        console.log('Server health check failed:', error.message);
+        return false;
+    }
+}
 
 // Background-proxied fetch to avoid mixed content/CORS on HTTPS pages
 async function apiFetch(url, options = {}) {
     return new Promise((resolve, reject) => {
         try {
+            // Add timeout to prevent hanging requests
+            const timeout = setTimeout(() => {
+                reject(new Error('Request timeout - server may be unavailable'));
+            }, 15000); // 15 second timeout
+            
             chrome.runtime.sendMessage({ action: 'apiFetch', url, options }, (response) => {
+                clearTimeout(timeout);
+                
                 if (chrome.runtime.lastError) {
-                    reject(new Error(chrome.runtime.lastError.message));
+                    const errorMsg = chrome.runtime.lastError.message;
+                    console.error('Chrome runtime error:', errorMsg);
+                    
+                    // Provide more specific error messages
+                    if (errorMsg.includes('Extension context invalidated')) {
+                        reject(new Error('Extension needs to be reloaded. Please refresh the page.'));
+                    } else if (errorMsg.includes('Receiving end does not exist')) {
+                        reject(new Error('Background service unavailable. Please refresh the page.'));
+                    } else {
+                        reject(new Error(`Extension error: ${errorMsg}`));
+                    }
                     return;
                 }
+                
+                if (!response) {
+                    reject(new Error('No response received from background script'));
+                    return;
+                }
+                
                 resolve(response);
             });
         } catch (err) {
-            reject(err);
+            console.error('apiFetch error:', err);
+            reject(new Error(`Network error: ${err.message}`));
         }
     });
 }
@@ -649,9 +1242,9 @@ let currentSortBy = 'newest';
 // Track expanded replies state
 let expandedReplies = new Set();
 
-// Load and display comments
-async function loadComments(sortBy = currentSortBy) {
-    console.log('Loading comments with sort:', sortBy);
+// Load and display comments with retry logic
+async function loadComments(sortBy = currentSortBy, retryCount = 0) {
+    console.log('Loading comments with sort:', sortBy, retryCount > 0 ? `(retry ${retryCount})` : '');
     currentSortBy = sortBy;
     const commentsList = document.getElementById('comments-list');
     const sortDropdown = document.getElementById('sort-comments');
@@ -660,6 +1253,21 @@ async function loadComments(sortBy = currentSortBy) {
     
     if (sortDropdown) {
         sortDropdown.value = sortBy;
+    }
+    
+    // Show loading state
+    if (commentsList && retryCount === 0) {
+        commentsList.innerHTML = `
+            <div class="loading-message" style="text-align: center; padding: 20px; color: #666;">
+                <div style="display: inline-block; width: 20px; height: 20px; border: 2px solid #f3f3f3; border-top: 2px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                <div style="margin-top: 10px;">Loading comments...</div>
+            </div>
+            <style>
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            </style>`;
     }
     
     try {
@@ -677,6 +1285,14 @@ async function loadComments(sortBy = currentSortBy) {
         if (!response || response.error) {
             const message = response?.error || 'Unknown error';
             console.error('Background apiFetch failed:', message);
+            
+            // Check if this is a network error that might be retryable
+            if (retryCount < 3 && (message.includes('fetch') || message.includes('network') || message.includes('timeout'))) {
+                console.log(`Retrying in ${(retryCount + 1) * 2} seconds...`);
+                setTimeout(() => loadComments(sortBy, retryCount + 1), (retryCount + 1) * 2000);
+                return;
+            }
+            
             throw new Error(`Failed to load comments: ${message}`);
         }
         
@@ -686,6 +1302,14 @@ async function loadComments(sortBy = currentSortBy) {
                 statusText: response.statusText,
                 body: response.body
             });
+            
+            // Retry on server errors (5xx) or temporary issues
+            if (retryCount < 2 && (response.status >= 500 || response.status === 429)) {
+                console.log(`Retrying due to server error ${response.status} in ${(retryCount + 1) * 3} seconds...`);
+                setTimeout(() => loadComments(sortBy, retryCount + 1), (retryCount + 1) * 3000);
+                return;
+            }
+            
             throw new Error(`Failed to load comments: ${response.body || response.statusText || 'Request failed'}`);
         }
         
@@ -980,11 +1604,42 @@ async function loadComments(sortBy = currentSortBy) {
         initializeEmojiPicker();
     } catch (error) {
         console.error('Failed to load comments:', error);
+        
+        // Create a more user-friendly error message with retry options
+        const errorMessage = error.message || 'Unknown error occurred';
+        const isNetworkError = errorMessage.toLowerCase().includes('fetch') || 
+                              errorMessage.toLowerCase().includes('network') || 
+                              errorMessage.toLowerCase().includes('timeout') ||
+                              errorMessage.toLowerCase().includes('connection');
+        
         commentsList.innerHTML = `
-            <div class="error-message">
-                Failed to load comments. Please try refreshing the page.
-                <br>
-                <small>Error: ${error.message}</small>
+            <div class="error-message" style="text-align: center; padding: 20px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; margin: 10px;">
+                <div style="color: #dc3545; font-size: 18px; margin-bottom: 10px;">
+                    <strong>Failed to load comments</strong>
+                </div>
+                <div style="color: #6c757d; margin-bottom: 15px;">
+                    ${isNetworkError ? 
+                        'Unable to connect to the server. This might be a temporary network issue.' : 
+                        'An error occurred while loading comments.'}
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <button onclick="loadComments('${currentSortBy}')" 
+                            style="background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-right: 10px;">
+                        🔄 Try Again
+                    </button>
+                    <button onclick="window.location.reload()" 
+                            style="background: #6c757d; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                        🔄 Refresh Page
+                    </button>
+                </div>
+                <details style="text-align: left; margin-top: 10px;">
+                    <summary style="cursor: pointer; color: #6c757d; font-size: 12px;">Technical Details</summary>
+                    <div style="background: #f8f9fa; padding: 10px; margin-top: 5px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #495057;">
+                        Error: ${errorMessage}
+                        <br>URL: ${currentUrl}
+                        <br>Time: ${new Date().toLocaleString()}
+                    </div>
+                </details>
             </div>`;
     }
 }
@@ -1152,32 +1807,32 @@ async function submitReply(commentId, parentReplyId, replyText) {
 
         console.log('Submitting reply with data:', { commentId, parentReplyId, text, user: userData.user.name });
 
-        const response = await fetch(`${API_BASE_URL}/comments/${commentId}/replies/${parentReplyId}`, {
+        const response = await apiFetch(`${API_BASE_URL}/comments/${commentId}/replies/${parentReplyId}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
+            body: {
                 text,
                 user: userData.user
-            })
+            }
         });
 
         console.log('Response status:', response.status);
         console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
-        if (!response.ok) {
-            const errorText = await response.text();
+        if (!response || !response.ok) {
+            const errorText = response?.body || '';
             console.error('Failed to submit reply. Server response:', {
-                status: response.status,
-                statusText: response.statusText,
+                status: response?.status,
+                statusText: response?.statusText,
                 error: errorText,
-                url: response.url
+                url: `${API_BASE_URL}/comments/${commentId}/replies/${parentReplyId}`
             });
-            throw new Error(`Server error (${response.status}): ${errorText}`);
+            throw new Error(`Server error (${response?.status || 'n/a'}): ${errorText}`);
         }
 
-        const responseData = await response.json();
+        const responseData = (() => { try { return JSON.parse(response.body || '{}'); } catch (_) { return {}; } })();
         console.log('Reply submitted successfully:', responseData);
         
         // Clear the specific input that was submitted
@@ -1648,19 +2303,19 @@ async function saveEdit(commentId, newText) {
             return;
         }
 
-        const response = await fetch(`${API_BASE_URL}/comments/${commentId}`, {
+        const response = await apiFetch(`${API_BASE_URL}/comments/${commentId}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
+            body: {
                 text,
                 userEmail
-            })
+            }
         });
 
-        if (!response.ok) {
-            throw new Error('Failed to save edit');
+        if (!response || !response.ok) {
+            throw new Error(response?.body || 'Failed to save edit');
         }
 
         loadComments();
@@ -1679,14 +2334,15 @@ async function deleteComment(commentId) {
             return;
         }
         console.log(`Attempting to delete comment ${commentId} by user ${userEmail}`);
-        const response = await fetch(`${API_BASE_URL}/comments/${commentId}`, {
+        const response = await apiFetch(`${API_BASE_URL}/comments/${commentId}`, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userEmail: userEmail })
+            body: { userEmail }
         });
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to delete comment');
+        if (!response || !response.ok) {
+            let errorMsg = 'Failed to delete comment';
+            try { errorMsg = JSON.parse(response?.body || '{}')?.error || errorMsg; } catch (_) {}
+            throw new Error(errorMsg);
         }
         await loadComments(currentSortBy);
     } catch (error) {
