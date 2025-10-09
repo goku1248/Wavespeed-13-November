@@ -180,7 +180,16 @@ async function createCommentsPanel() {
     panel.innerHTML = `
         <div id="comments-resizer"></div>
         <div class="comments-header" id="comments-header">
-            <h3>💬 Comments</h3>
+            <div class="header-left">
+                <h3>💬 Comments</h3>
+                <div id="user-info-header" class="user-info-header" style="display: none;">
+                    <img id="user-avatar-header" class="user-avatar-header" src="" alt="User" />
+                    <div class="user-details-header">
+                        <div id="user-name-header" class="user-name-header"></div>
+                        <div id="user-email-header" class="user-email-header"></div>
+                    </div>
+                </div>
+            </div>
             <div class="comments-controls">
                 <div class="custom-dropdown">
                     <button id="sort-dropdown-btn" class="sort-dropdown-btn">
@@ -1168,6 +1177,25 @@ async function checkAuthStatus() {
             commentInput.disabled = false;
             submitButton.disabled = false;
             
+            // Update user info in header
+            const userInfoHeader = document.getElementById('user-info-header');
+            const userAvatarHeader = document.getElementById('user-avatar-header');
+            const userNameHeader = document.getElementById('user-name-header');
+            const userEmailHeader = document.getElementById('user-email-header');
+            
+            if (userInfoHeader && currentUser) {
+                userInfoHeader.style.display = 'flex';
+                if (userAvatarHeader && currentUser.picture) {
+                    userAvatarHeader.src = currentUser.picture;
+                }
+                if (userNameHeader && currentUser.name) {
+                    userNameHeader.textContent = currentUser.name;
+                }
+                if (userEmailHeader && currentUser.email) {
+                    userEmailHeader.textContent = currentUser.email;
+                }
+            }
+            
             // Initialize WebSocket if user is authenticated
             if (!socket) {
                 initializeWebSocket();
@@ -1182,6 +1210,12 @@ async function checkAuthStatus() {
             authMessage.classList.remove('hidden');
             commentInput.disabled = true;
             submitButton.disabled = true;
+            
+            // Hide user info in header
+            const userInfoHeader = document.getElementById('user-info-header');
+            if (userInfoHeader) {
+                userInfoHeader.style.display = 'none';
+            }
             
             // Disconnect WebSocket if not authenticated
             if (socket) {
