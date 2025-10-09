@@ -438,14 +438,46 @@ async function createCommentsPanel() {
         const list = document.getElementById('conversations-list');
         if (!list) return;
         list.innerHTML = '';
+        
+        if (conversations.length === 0) {
+            list.innerHTML = `
+                <div class="empty-state-modern">
+                    <div class="icon">💬</div>
+                    <h3>No messages yet</h3>
+                    <p>Search for users to start a conversation</p>
+                </div>
+            `;
+            return;
+        }
+        
         conversations.forEach((c) => {
-            const other = c.otherEmail || (c.lastMessage && (c.lastMessage.from.email === currentUser?.email ? c.lastMessage.to.email : c.lastMessage.from.email));
+            const lastMsg = c.lastMessage;
+            const other = c.otherEmail || (lastMsg && (lastMsg.from.email === currentUser?.email ? lastMsg.to.email : lastMsg.from.email));
+            const otherName = lastMsg ? (lastMsg.from.email === currentUser?.email ? lastMsg.to.name : lastMsg.from.name) : other;
+            const otherPicture = lastMsg ? (lastMsg.from.email === currentUser?.email ? lastMsg.to.picture : lastMsg.from.picture) : null;
+            const messagePreview = lastMsg ? lastMsg.text.substring(0, 50) : 'No messages yet';
+            const timestamp = lastMsg ? new Date(lastMsg.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+            
             const btn = document.createElement('button');
-            btn.className = 'conversation-item';
-            btn.textContent = other;
+            btn.className = 'conversation-item-modern';
+            btn.innerHTML = `
+                <div class="conversation-avatar-modern">
+                    ${otherPicture ? `<img src="${otherPicture}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />` : '👤'}
+                </div>
+                <div class="conversation-info-modern">
+                    <div class="conversation-name-modern">
+                        <span>${otherName || other}</span>
+                        <span class="conversation-time">${timestamp}</span>
+                    </div>
+                    <div class="conversation-preview">${messagePreview}</div>
+                </div>
+            `;
             btn.addEventListener('click', async () => {
                 selectedConversationEmail = other;
                 await loadThread(other);
+                // Mark as active
+                document.querySelectorAll('.conversation-item-modern').forEach(item => item.classList.remove('active'));
+                btn.classList.add('active');
             });
             list.appendChild(btn);
         });
@@ -473,18 +505,36 @@ async function createCommentsPanel() {
         const list = document.getElementById('groups-items');
         if (!list) return;
         list.innerHTML = '';
+        
+        if (groups.length === 0) {
+            list.innerHTML = `
+                <div class="empty-state-modern">
+                    <div class="icon">👥</div>
+                    <h3>No groups yet</h3>
+                    <p>Create a group to start chatting with multiple people</p>
+                </div>
+            `;
+            return;
+        }
+        
         groups.forEach((group) => {
             const btn = document.createElement('button');
-            btn.className = 'group-item';
+            btn.className = 'group-item-modern';
             btn.innerHTML = `
-                <div class="group-name">${group.name}</div>
-                <div class="group-members">${group.members.length} members</div>
+                <div class="conversation-avatar-modern">👥</div>
+                <div class="conversation-info-modern">
+                    <div class="conversation-name-modern">${group.name}</div>
+                    <div class="conversation-preview">${group.members.length} members</div>
+                </div>
             `;
             btn.addEventListener('click', async () => {
                 selectedGroupId = group._id;
                 selectedGroupName = group.name;
                 selectedConversationEmail = null; // Clear direct message selection
                 await loadGroupThread(group._id, group.name);
+                // Mark as active
+                document.querySelectorAll('.group-item-modern').forEach(item => item.classList.remove('active'));
+                btn.classList.add('active');
             });
             list.appendChild(btn);
         });
@@ -493,7 +543,6 @@ async function createCommentsPanel() {
     async function loadGroupThread(groupId, groupName) {
         const header = document.getElementById('messages-thread-header');
         const list = document.getElementById('messages-thread-list');
-        if (header) header.textContent = `Group: ${groupName}`;
         if (!groupId || !currentUser?.email || !list) return;
         
         const response = await apiFetch(`${API_BASE_URL}/groups/${groupId}/messages?userEmail=${encodeURIComponent(currentUser.email)}&limit=100`);
@@ -501,14 +550,31 @@ async function createCommentsPanel() {
         if (response?.ok) { 
             try { messages = JSON.parse(response.body || '[]'); } catch (_) {} 
         }
+        
+        // Update header for group
+        if (header) {
+            header.innerHTML = `
+                <div class="conversation-info">
+                    <div class="conversation-avatar">👥</div>
+                    <div class="conversation-details">
+                        <div class="conversation-name">${groupName}</div>
+                        <div class="conversation-status">Group chat</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Render group messages with modern bubbles
         list.innerHTML = '';
         messages.forEach((msg) => {
             const item = document.createElement('div');
-            item.className = msg.from.email === currentUser.email ? 'message-item from-me' : 'message-item from-them';
+            const isFromMe = msg.from.email === currentUser.email;
+            item.className = `message-bubble-modern ${isFromMe ? 'sent' : 'received'}`;
+            const time = new Date(msg.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
             item.innerHTML = `
-                <div class="message-sender">${msg.from.name || msg.from.email}</div>
-                <div class="message-text">${msg.text}</div>
-                <div class="message-time">${new Date(msg.timestamp).toLocaleTimeString()}</div>
+                ${!isFromMe ? `<div style="font-size: 11px; font-weight: 600; color: #65676b; margin-bottom: 2px;">${msg.from.name || msg.from.email}</div>` : ''}
+                <div>${msg.text}</div>
+                <div class="message-time">${time}</div>
             `;
             list.appendChild(item);
         });
@@ -572,16 +638,42 @@ async function createCommentsPanel() {
     async function loadThread(otherEmail) {
         const header = document.getElementById('messages-thread-header');
         const list = document.getElementById('messages-thread-list');
-        if (header) header.textContent = otherEmail ? `Chat with ${otherEmail}` : 'Select a conversation';
         if (!otherEmail || !currentUser?.email || !list) return;
+        
         const response = await apiFetch(`${API_BASE_URL}/messages?userEmail=${encodeURIComponent(currentUser.email)}&otherEmail=${encodeURIComponent(otherEmail)}&limit=100`);
         let messages = [];
         if (response?.ok) { try { messages = JSON.parse(response.body || '[]'); } catch (_) {} }
+        
+        // Get user info from messages or use email
+        const otherName = messages.length > 0 ? (messages[0].from.email === otherEmail ? messages[0].from.name : messages[0].to.name) : otherEmail;
+        const otherPicture = messages.length > 0 ? (messages[0].from.email === otherEmail ? messages[0].from.picture : messages[0].to.picture) : null;
+        
+        // Update header with modern design
+        if (header) {
+            header.innerHTML = `
+                <div class="conversation-info">
+                    <div class="conversation-avatar">
+                        ${otherPicture ? `<img src="${otherPicture}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />` : '👤'}
+                    </div>
+                    <div class="conversation-details">
+                        <div class="conversation-name">${otherName || otherEmail}</div>
+                        <div class="conversation-status online">Active now</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Render messages with modern bubbles
         list.innerHTML = '';
         messages.forEach((m) => {
             const item = document.createElement('div');
-            item.className = `message-item ${m.from?.email === currentUser.email ? 'from-me' : 'from-them'}`;
-            item.textContent = m.text;
+            const isFromMe = m.from?.email === currentUser.email;
+            item.className = `message-bubble-modern ${isFromMe ? 'sent' : 'received'}`;
+            const time = new Date(m.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            item.innerHTML = `
+                <div>${m.text}</div>
+                <div class="message-time">${time}</div>
+            `;
             list.appendChild(item);
         });
         list.scrollTop = list.scrollHeight;
@@ -667,7 +759,6 @@ async function createCommentsPanel() {
     async function initMessagesUI() {
         const sendBtn = document.getElementById('messages-send-btn');
         const input = document.getElementById('messages-input-text');
-        const searchBtn = document.getElementById('messages-search-btn');
         const searchInput = document.getElementById('messages-search-input');
         const directTab = document.getElementById('direct-messages-tab');
         const groupsTab = document.getElementById('group-messages-tab');
@@ -678,7 +769,7 @@ async function createCommentsPanel() {
         if (directTab) directTab.addEventListener('click', () => switchMessagesTab('direct'));
         if (groupsTab) groupsTab.addEventListener('click', () => switchMessagesTab('groups'));
         if (createGroupBtn) createGroupBtn.addEventListener('click', createGroup);
-        if (searchBtn && searchInput) {
+        if (searchInput) {
             async function handleSearch() {
                 const q = (searchInput.value || '').trim();
                 if (!q) {
@@ -752,11 +843,34 @@ async function createCommentsPanel() {
                     }
                 }
             }
-            searchBtn.addEventListener('click', handleSearch);
+            // Trigger search on Enter key
+            searchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    handleSearch();
+                }
+            });
+            
+            // Real-time search as user types
+            let searchTimeout;
             searchInput.addEventListener('input', async () => {
                 const q = (searchInput.value || '').trim();
-                if (q.length < 2) return; // debounce small inputs
-                await handleSearch();
+                
+                // Clear previous timeout
+                if (searchTimeout) clearTimeout(searchTimeout);
+                
+                // If empty, clear search immediately
+                if (q.length === 0) {
+                    const convs = await fetchConversations();
+                    renderConversations(convs);
+                    return;
+                }
+                
+                // Debounce search for better performance
+                if (q.length < 2) return;
+                
+                searchTimeout = setTimeout(async () => {
+                    await handleSearch();
+                }, 300); // Wait 300ms after user stops typing
             });
         }
         // Register/update the user to ensure they are searchable
