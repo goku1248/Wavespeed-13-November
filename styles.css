@@ -81,6 +81,16 @@
     padding: 24px 8px;
 }
 
+.section-placeholder.active {
+    display: block !important;
+}
+
+/* Messages section should not have text-align center */
+.section-placeholder[data-section="messages"] {
+    text-align: left !important;
+    padding: 0 !important;
+}
+
 /* Messages layout */
 .messages-panel {
     display: flex;
@@ -1380,12 +1390,13 @@
 
 /* Messages Panel Container */
 .messages-panel-modern {
-    display: flex;
+    display: flex !important;
     height: 500px;
     background: #fff;
     border-radius: 12px;
     overflow: hidden;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    width: 100%;
 }
 
 /* Sidebar */
