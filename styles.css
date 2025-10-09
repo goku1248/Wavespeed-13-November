@@ -1317,3 +1317,497 @@
     margin-top: 8px;
     flex-wrap: wrap;
 }
+/* ============================================
+   MODERN MESSAGING INTERFACE (Facebook/Instagram/X Style)
+   ============================================ */
+
+/* Messages Panel Container */
+.messages-panel-modern {
+    display: flex;
+    height: 500px;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+/* Sidebar */
+.messages-sidebar-modern {
+    width: 280px;
+    background: #ffffff;
+    border-right: 1px solid #e4e6eb;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.messages-header-modern {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border-bottom: 1px solid #e4e6eb;
+}
+
+.messages-header-modern h4 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    color: #050505;
+}
+
+.new-message-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: #f0f2f5;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.new-message-btn:hover {
+    background: #e4e6eb;
+    transform: scale(1.05);
+}
+
+/* Modern Search */
+.messages-search-modern {
+    padding: 8px 16px;
+}
+
+.search-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background: #f0f2f5;
+    border-radius: 20px;
+    padding: 8px 12px;
+}
+
+.search-icon {
+    font-size: 16px;
+    margin-right: 8px;
+    color: #65676b;
+}
+
+.search-input-wrapper input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 15px;
+    color: #050505;
+}
+
+.search-input-wrapper input::placeholder {
+    color: #65676b;
+}
+
+/* Modern Tabs */
+.messages-tabs-modern {
+    display: flex;
+    padding: 0 16px;
+    gap: 4px;
+    border-bottom: 1px solid #e4e6eb;
+}
+
+.messages-tab-modern {
+    flex: 1;
+    padding: 12px 8px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    color: #65676b;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.messages-tab-modern .tab-icon {
+    font-size: 16px;
+}
+
+.messages-tab-modern.active {
+    color: #0084ff;
+}
+
+.messages-tab-modern.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: #0084ff;
+    border-radius: 3px 3px 0 0;
+}
+
+.messages-tab-modern:hover {
+    background: #f0f2f5;
+}
+
+/* Conversations List */
+.conversations-list-modern, .groups-list-modern {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+
+.conversation-item-modern, .group-item-modern {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background 0.2s;
+    gap: 12px;
+    position: relative;
+}
+
+.conversation-item-modern:hover, .group-item-modern:hover {
+    background: #f0f2f5;
+}
+
+.conversation-item-modern.active, .group-item-modern.active {
+    background: #e7f3ff;
+}
+
+.conversation-avatar-modern {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.online-indicator {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 14px;
+    height: 14px;
+    background: #31a24c;
+    border: 2px solid #fff;
+    border-radius: 50%;
+}
+
+.conversation-info-modern {
+    flex: 1;
+    min-width: 0;
+}
+
+.conversation-name-modern {
+    font-size: 15px;
+    font-weight: 600;
+    color: #050505;
+    margin-bottom: 2px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.conversation-time {
+    font-size: 12px;
+    color: #65676b;
+    flex-shrink: 0;
+}
+
+.conversation-preview {
+    font-size: 13px;
+    color: #65676b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.conversation-preview.unread {
+    color: #050505;
+    font-weight: 600;
+}
+
+.unread-badge {
+    position: absolute;
+    right: 16px;
+    bottom: 12px;
+    background: #0084ff;
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 10px;
+    min-width: 18px;
+    text-align: center;
+}
+
+/* Thread Container */
+.messages-thread-modern {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+}
+
+.messages-thread-header-modern {
+    padding: 12px 20px;
+    border-bottom: 1px solid #e4e6eb;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.conversation-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.conversation-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.conversation-details {
+    flex: 1;
+}
+
+.conversation-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #050505;
+    margin-bottom: 2px;
+}
+
+.conversation-status {
+    font-size: 12px;
+    color: #65676b;
+}
+
+.conversation-status.online {
+    color: #31a24c;
+}
+
+/* Messages Thread List */
+.messages-thread-list-modern {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    background: #f0f2f5;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.message-bubble-modern {
+    max-width: 70%;
+    padding: 8px 12px;
+    border-radius: 18px;
+    font-size: 15px;
+    line-height: 1.4;
+    word-wrap: break-word;
+    position: relative;
+}
+
+.message-bubble-modern.sent {
+    background: #0084ff;
+    color: #ffffff;
+    align-self: flex-end;
+    border-bottom-right-radius: 4px;
+    margin-left: auto;
+}
+
+.message-bubble-modern.received {
+    background: #e4e6eb;
+    color: #050505;
+    align-self: flex-start;
+    border-bottom-left-radius: 4px;
+}
+
+.message-time {
+    font-size: 11px;
+    color: rgba(0,0,0,0.4);
+    margin-top: 4px;
+    text-align: right;
+}
+
+.message-bubble-modern.sent .message-time {
+    color: rgba(255,255,255,0.7);
+}
+
+/* Message Input */
+.messages-input-modern {
+    padding: 12px 20px;
+    background: #ffffff;
+    border-top: 1px solid #e4e6eb;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.input-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.input-action-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.input-action-btn:hover {
+    background: #f0f2f5;
+}
+
+.messages-input-modern input {
+    flex: 1;
+    padding: 10px 16px;
+    border: none;
+    background: #f0f2f5;
+    border-radius: 20px;
+    font-size: 15px;
+    outline: none;
+    color: #050505;
+}
+
+.messages-input-modern input::placeholder {
+    color: #65676b;
+}
+
+.send-btn-modern {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: #0084ff;
+    color: white;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.send-btn-modern:hover {
+    background: #0073e6;
+    transform: scale(1.05);
+}
+
+.send-btn-modern:active {
+    transform: scale(0.95);
+}
+
+/* Groups Header */
+.groups-header-modern {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e4e6eb;
+}
+
+.create-group-btn-modern {
+    width: 100%;
+    padding: 10px 16px;
+    border: none;
+    background: #0084ff;
+    color: white;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.2s;
+}
+
+.create-group-btn-modern:hover {
+    background: #0073e6;
+}
+
+.groups-items-modern {
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* Empty State */
+.empty-state-modern {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 40px;
+    text-align: center;
+    color: #65676b;
+}
+
+.empty-state-modern .icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.empty-state-modern h3 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #050505;
+    margin-bottom: 8px;
+}
+
+.empty-state-modern p {
+    font-size: 14px;
+    color: #65676b;
+}
+
+/* Scrollbar Styling */
+.conversations-list-modern::-webkit-scrollbar,
+.groups-list-modern::-webkit-scrollbar,
+.messages-thread-list-modern::-webkit-scrollbar {
+    width: 8px;
+}
+
+.conversations-list-modern::-webkit-scrollbar-track,
+.groups-list-modern::-webkit-scrollbar-track,
+.messages-thread-list-modern::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.conversations-list-modern::-webkit-scrollbar-thumb,
+.groups-list-modern::-webkit-scrollbar-thumb,
+.messages-thread-list-modern::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 4px;
+}
+
+.conversations-list-modern::-webkit-scrollbar-thumb:hover,
+.groups-list-modern::-webkit-scrollbar-thumb:hover,
+.messages-thread-list-modern::-webkit-scrollbar-thumb:hover {
+    background: #999;
+}

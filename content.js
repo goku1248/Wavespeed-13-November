@@ -215,30 +215,58 @@ async function createCommentsPanel() {
         </div>
         <div class="sections-container hidden" id="sections-container">
             <div class="section-placeholder" data-section="messages">
-                <div class="messages-panel">
-                    <div class="messages-sidebar">
-                        <div class="messages-tabs">
-                            <button id="direct-messages-tab" class="messages-tab active">Direct</button>
-                            <button id="group-messages-tab" class="messages-tab">Groups</button>
+                <div class="messages-panel-modern">
+                    <div class="messages-sidebar-modern">
+                        <div class="messages-header-modern">
+                            <h4>Messages</h4>
+                            <button id="new-message-btn" class="new-message-btn" title="New Message">✉️</button>
                         </div>
-                        <div class="messages-search">
-                            <input id="messages-search-input" type="text" placeholder="Search users by email..." />
-                            <button id="messages-search-btn">🔍</button>
-                        </div>
-                        <div id="conversations-list" class="conversations-list"></div>
-                        <div id="groups-list" class="groups-list" style="display: none;">
-                            <div class="groups-header">
-                                <button id="create-group-btn" class="create-group-btn">+ Create Group</button>
+                        <div class="messages-search-modern">
+                            <div class="search-input-wrapper">
+                                <span class="search-icon">🔍</span>
+                                <input id="messages-search-input" type="text" placeholder="Search conversations..." />
                             </div>
-                            <div id="groups-items" class="groups-items"></div>
+                        </div>
+                        <div class="messages-tabs-modern">
+                            <button id="direct-messages-tab" class="messages-tab-modern active">
+                                <span class="tab-icon">💬</span>
+                                <span>Chats</span>
+                            </button>
+                            <button id="group-messages-tab" class="messages-tab-modern">
+                                <span class="tab-icon">👥</span>
+                                <span>Groups</span>
+                            </button>
+                        </div>
+                        <div id="conversations-list" class="conversations-list-modern"></div>
+                        <div id="groups-list" class="groups-list-modern" style="display: none;">
+                            <div class="groups-header-modern">
+                                <button id="create-group-btn" class="create-group-btn-modern">
+                                    <span>➕</span> Create New Group
+                                </button>
+                            </div>
+                            <div id="groups-items" class="groups-items-modern"></div>
                         </div>
                     </div>
-                    <div class="messages-thread">
-                        <div id="messages-thread-header" class="messages-thread-header">Select a conversation</div>
-                        <div id="messages-thread-list" class="messages-thread-list"></div>
-                        <div class="messages-input">
+                    <div class="messages-thread-modern">
+                        <div id="messages-thread-header" class="messages-thread-header-modern">
+                            <div class="conversation-info">
+                                <div class="conversation-avatar">👤</div>
+                                <div class="conversation-details">
+                                    <div class="conversation-name">Select a conversation</div>
+                                    <div class="conversation-status">Start messaging</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="messages-thread-list" class="messages-thread-list-modern"></div>
+                        <div class="messages-input-modern">
+                            <div class="input-actions">
+                                <button class="input-action-btn" title="Attach">📎</button>
+                                <button class="input-action-btn" title="Emoji">😊</button>
+                            </div>
                             <input id="messages-input-text" type="text" placeholder="Type a message..." />
-                            <button id="messages-send-btn">Send</button>
+                            <button id="messages-send-btn" class="send-btn-modern">
+                                <span>➤</span>
+                            </button>
                         </div>
                     </div>
                 </div>
