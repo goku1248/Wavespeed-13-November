@@ -690,7 +690,16 @@ async function createCommentsPanel() {
 
     async function sendMessage() {
         const input = document.getElementById('messages-input-text');
-        if (!input || !input.value.trim() || !currentUser) return;
+        if (!input || !input.value.trim() || !currentUser) {
+            console.log('Send message blocked:', {
+                hasInput: !!input,
+                hasValue: input?.value?.trim(),
+                hasUser: !!currentUser,
+                selectedEmail: selectedConversationEmail,
+                selectedGroup: selectedGroupId
+            });
+            return;
+        }
         
         const text = input.value.trim();
         let payload;
@@ -711,8 +720,12 @@ async function createCommentsPanel() {
                 text 
             };
         } else {
-            return; // No conversation selected
+            console.warn('No conversation selected. Please select or search for a user first.');
+            alert('Please select a conversation or search for a user to send a message.');
+            return;
         }
+        
+        console.log('Sending message:', { to: selectedConversationEmail || selectedGroupId, text });
         
         const res = await apiFetch(`${API_BASE_URL}/messages`, { 
             method: 'POST', 
@@ -721,12 +734,34 @@ async function createCommentsPanel() {
         });
         
         if (res?.ok) {
+            console.log('Message sent successfully');
             input.value = '';
-            if (selectedGroupId) {
-                await loadGroupThread(selectedGroupId, selectedGroupName);
-            } else {
-                await loadThread(selectedConversationEmail);
+            
+            // Append message to UI immediately for instant feedback
+            const list = document.getElementById('messages-thread-list');
+            if (list) {
+                const item = document.createElement('div');
+                item.className = 'message-bubble-modern sent';
+                const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                item.innerHTML = `
+                    <div>${text}</div>
+                    <div class="message-time">${time}</div>
+                `;
+                list.appendChild(item);
+                list.scrollTop = list.scrollHeight;
             }
+            
+            // Then reload to get official message from server
+            setTimeout(async () => {
+                if (selectedGroupId) {
+                    await loadGroupThread(selectedGroupId, selectedGroupName);
+                } else {
+                    await loadThread(selectedConversationEmail);
+                }
+            }, 500);
+        } else {
+            console.error('Failed to send message:', res);
+            alert('Failed to send message. Please try again.');
         }
     }
 
@@ -790,28 +825,22 @@ async function createCommentsPanel() {
                     if (unique && unique.email) {
                         // Show the resolved username immediately and select conversation
                         selectedConversationEmail = unique.email;
+                        selectedGroupId = null; // Clear group selection
+                        console.log('Selected user:', unique.email);
+                        
+                        // Clear search input
+                        searchInput.value = '';
+                        
+                        // Open thread immediately
                         await loadThread(unique.email);
-                        // Prepend to conversations list for quick access
-                        if (list) {
-                            const btn = document.createElement('button');
-                            btn.className = 'conversation-item-modern';
-                            btn.innerHTML = `
-                                <div class="conversation-avatar-modern">${unique.picture ? `<img src="${unique.picture}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />` : '👤'}</div>
-                                <div class="conversation-info-modern">
-                                    <div class="conversation-name-modern">${unique.name || unique.email}</div>
-                                    <div class="conversation-preview">${unique.email}</div>
-                                </div>
-                            `;
-                            btn.addEventListener('click', async () => {
-                                selectedConversationEmail = unique.email;
-                                await loadThread(unique.email);
-                            });
-                            list.prepend(btn);
-                        }
+                        
+                        // Reload conversations to show this user
+                        const convs = await fetchConversations();
+                        renderConversations(convs);
                     } else if (results.length > 0) {
                         // Render top results for disambiguation
                         if (list) {
-                            list.innerHTML = '';
+                            list.innerHTML = '<div style="padding: 8px 16px; font-size: 12px; color: #65676b; font-weight: 600;">Search Results</div>';
                             results.forEach((u) => {
                                 const btn = document.createElement('button');
                                 btn.className = 'conversation-item-modern';
@@ -824,7 +853,20 @@ async function createCommentsPanel() {
                                 `;
                                 btn.addEventListener('click', async () => {
                                     selectedConversationEmail = u.email;
+                                    selectedGroupId = null; // Clear group selection
+                                    console.log('Selected user from search:', u.email);
+                                    
+                                    // Clear search and reload
+                                    searchInput.value = '';
                                     await loadThread(u.email);
+                                    
+                                    // Reload conversations
+                                    const convs = await fetchConversations();
+                                    renderConversations(convs);
+                                    
+                                    // Mark as active
+                                    document.querySelectorAll('.conversation-item-modern').forEach(item => item.classList.remove('active'));
+                                    btn.classList.add('active');
                                 });
                                 list.appendChild(btn);
                             });
