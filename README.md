@@ -1,38 +1,191 @@
-# Webpage Comments Chrome Extension
+# Wavespeed - Social Comments Extension
 
-A Chrome extension that allows you to add comments to any webpage you visit. The comments are stored locally and will persist across sessions.
+A powerful Chrome extension that brings social commenting, messaging, and engagement features to any webpage.
 
 ## Features
 
-- Add comments to any webpage
-- Comments are stored locally and persist across sessions
-- Clean and modern user interface
-- Collapsible comments panel
-- Timestamp for each comment
+### Core Features
+- 💬 **Comment on any webpage** - Add comments that persist across sessions
+- 🔄 **Infinite nested replies** - Reply to comments and replies infinitely
+- 👍 **Reactions** - Like, Dislike, Trust, Distrust, and Flag comments/replies
+- 📨 **Direct Messaging** - Send messages to other users
+- 👥 **Group Chats** - Create and participate in group conversations
+- 🔥 **Real-time Updates** - WebSocket-powered live updates
+- 😊 **Emoji & GIF Support** - Add emojis and GIFs to comments and messages
+- 🔐 **Google OAuth** - Secure authentication with Google
+- 🎨 **Modern UI** - Beautiful, responsive interface inspired by Facebook/Instagram
 
-## Installation
+### Advanced Features
+- 📊 **Multiple sorting** - Sort by newest, oldest, most liked, most trusted, etc.
+- 🔍 **User search** - Find and message other extension users
+- 🌐 **Dual-server architecture** - Automatic fallback between local and cloud servers
+- ✨ **No flashing** - Smooth updates without page reloads
+- 📱 **Responsive design** - Works on all screen sizes
 
-1. Download or clone this repository
-2. Open Chrome and go to `chrome://extensions/`
-3. Enable "Developer mode" in the top right corner
-4. Click "Load unpacked" and select the directory containing the extension files
+## Quick Start
+
+### 1. Install Extension
+
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/goku1248/Wavespeed-25-July.git
+   cd Wavespeed-25-July
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Set up environment variables:
+   - Copy `.env.example` to `.env`
+   - Add your MongoDB connection string
+   - See [MongoDB Setup](#mongodb-setup) below
+
+4. Load extension in Chrome:
+   - Open `chrome://extensions/`
+   - Enable "Developer mode"
+   - Click "Load unpacked"
+   - Select this directory
+
+### 2. Start Local Server
+
+**Option A: Quick Start (Terminal closes = server stops)**
+```bash
+npm start
+```
+
+**Option B: Background Mode (Recommended for Windows)**
+```batch
+start-server.bat
+```
+Server runs in background even when terminal is closed.
+
+To stop:
+```batch
+stop-server.bat
+```
+
+### 3. Deploy to Cloud (Optional but Recommended)
+
+For 24/7 availability without keeping your computer on:
+
+See [DEPLOY.md](DEPLOY.md) for complete Render.com deployment guide.
+
+## MongoDB Setup
+
+1. Create free MongoDB Atlas account at [cloud.mongodb.com](https://cloud.mongodb.com/)
+2. Create a cluster (M0 Free tier)
+3. Add a database user
+4. Whitelist your IP or allow from anywhere
+5. Get connection string and add to `.env`:
+   ```
+   MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/wavespeed?retryWrites=true&w=majority
+   PORT=3001
+   ```
 
 ## Usage
 
-1. Click the extension icon in your Chrome toolbar to activate the comments panel
-2. The comments panel will appear on the right side of the webpage
-3. Type your comment in the text area and click "Post" to add it
-4. Use the toggle button (−) to collapse/expand the comments panel
-5. Comments are automatically saved and will be available when you revisit the page
+1. **Sign in** with Google OAuth
+2. **Browse any webpage** - Comments panel appears on the right
+3. **Add comments** - Type and click Post
+4. **Reply to comments** - Click Reply button on any comment
+5. **React** - Like 👍, Dislike 👎, Trust ✅, Distrust ❌, Flag 🚩
+6. **Message users** - Click Messages tab (📨), search for users
+7. **Create groups** - Click Groups tab, create group chats
 
-## Files
+## Project Structure
 
-- `manifest.json`: Extension configuration
-- `content.js`: Main script that injects and manages the comments panel
-- `styles.css`: Styling for the comments panel
-- `popup.html`: Extension popup interface
-- `background.js`: Background script for initialization
+### Extension Files
+- `manifest.json` - Extension configuration
+- `content.js` - Main extension logic (4000+ lines)
+- `styles.css` - Modern UI styling (1900+ lines)
+- `popup.html/js` - Extension popup
+- `background.js` - Background service worker
+- `auth.js` - Google OAuth handling
 
-## Note
+### Backend Files
+- `server.js` - Express server with MongoDB (1800+ lines)
+- `package.json` - Dependencies
+- `render.yaml` - Render.com deployment config
+- `.env` - Environment variables (not committed)
+- `.env.example` - Environment template
 
-This extension stores comments locally in your browser. Comments are associated with specific URLs and will only appear on the pages where they were created. 
+### Utility Scripts
+- `start-server.bat` - Start server in background (Windows)
+- `stop-server.bat` - Stop background server (Windows)
+- `auto-commit.js` - Auto-commit helper
+- `DEPLOY.md` - Deployment guide
+
+## Architecture
+
+### Dual-Server Design
+- **Local Server**: `http://localhost:3001` (development)
+- **Cloud Server**: Render.com deployment (production)
+- **Automatic Fallback**: Extension tries local first, then cloud
+- **Health Monitoring**: Checks server health every 60 seconds
+
+### Technologies
+- **Frontend**: Vanilla JavaScript, Chrome Extension APIs
+- **Backend**: Node.js, Express, Socket.IO
+- **Database**: MongoDB Atlas
+- **Authentication**: Google OAuth 2.0
+- **Real-time**: WebSocket (Socket.IO)
+
+## Development
+
+### Local Development
+```bash
+npm run dev  # Uses nodemon for auto-restart
+```
+
+### Auto-commit
+```bash
+npm run commit  # Interactive commit
+npm run push    # Quick push with default message
+```
+
+## Troubleshooting
+
+### "Failed to load comments"
+- **Check server**: Is `node server.js` running?
+- **Use batch script**: Run `start-server.bat` for persistent server
+- **Check MongoDB**: Verify `.env` has correct MONGODB_URI
+- **Check health**: Visit `http://localhost:3001/health`
+
+### Messages not sending
+- Ensure recipient has installed the extension
+- Check browser console (F12) for errors
+- Verify you selected a conversation
+
+### Extension not loading
+- Reload extension in `chrome://extensions/`
+- Check for errors in extension console
+- Refresh the webpage
+
+## Security Notes
+
+- ✅ `.env` file is git-ignored (credentials safe)
+- ✅ OAuth tokens stored securely in Chrome storage
+- ✅ CORS configured for security
+- ✅ Input sanitization on server
+- ⚠️ For production: Add rate limiting and authentication middleware
+
+## Contributing
+
+Feel free to fork and improve! Key areas for contribution:
+- Performance optimization
+- Additional features (trending, posts, followers)
+- Mobile responsiveness
+- Security enhancements
+
+## License
+
+MIT License - See LICENSE file for details
+
+## Author
+
+Gokul Shetty
+- GitHub: [@goku1248](https://github.com/goku1248)
+- Email: gokulvshetty@gmail.com
+ 

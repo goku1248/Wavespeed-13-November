@@ -40,62 +40,70 @@ if (!MONGODB_URI) {
 // Add connection status tracking
 let isConnected = false;
 
-mongoose.connect(MONGODB_URI, {
+// Enhanced MongoDB connection with aggressive reconnection
+const mongooseOptions = {
     useNewUrlParser: true,
     useUnifiedTopology: true,
-    serverSelectionTimeoutMS: 10000, // Increased from 5000
-    socketTimeoutMS: 45000,
+    serverSelectionTimeoutMS: 30000, // 30 seconds
+    socketTimeoutMS: 75000, // 75 seconds
+    connectTimeoutMS: 30000,
+    heartbeatFrequencyMS: 10000,
     bufferCommands: false,
-    maxPoolSize: 10,
-    minPoolSize: 1,
-    maxIdleTimeMS: 30000,
+    maxPoolSize: 50, // Increased pool size
+    minPoolSize: 5, // Keep more connections alive
+    maxIdleTimeMS: 60000,
     retryWrites: true,
     w: 'majority',
-    connectTimeoutMS: 10000, // Added connection timeout
-    heartbeatFrequencyMS: 10000 // Added heartbeat frequency
-}).then(() => {
-    console.log('Connected to MongoDB Atlas');
-    isConnected = true;
-    // Run the one-time fix after successful connection
-    fixExistingReplies();
-}).catch((error) => {
-    console.error('MongoDB connection error:', error);
-    isConnected = false;
-});
+    autoIndex: true,
+};
 
-// Add connection monitoring with reconnection logic
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
+
+async function connectToMongoDB() {
+    try {
+        await mongoose.connect(MONGODB_URI, mongooseOptions);
+        console.log('✅ Connected to MongoDB Atlas');
+        isConnected = true;
+        reconnectAttempts = 0; // Reset counter on successful connection
+        // Run the one-time fix after successful connection
+        fixExistingReplies();
+    } catch (error) {
+        console.error('❌ MongoDB connection error:', error.message);
+        isConnected = false;
+        
+        // Exponential backoff reconnection
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 60000); // Max 60s
+            console.log(`🔄 Reconnecting in ${delay/1000}s (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+            setTimeout(connectToMongoDB, delay);
+        } else {
+            console.error('❌ Max reconnection attempts reached. Server will continue without database.');
+        }
+    }
+}
+
+connectToMongoDB();
+
+// Add connection monitoring with improved reconnection logic
 mongoose.connection.on('disconnected', () => {
-    console.log('MongoDB disconnected - attempting to reconnect...');
+    console.log('⚠️ MongoDB disconnected - initiating reconnection...');
     isConnected = false;
     
-    // Attempt to reconnect after a delay
+    // Use the same connection function with exponential backoff
     setTimeout(() => {
-        if (!isConnected) {
-            mongoose.connect(MONGODB_URI, {
-                useNewUrlParser: true,
-                useUnifiedTopology: true,
-                serverSelectionTimeoutMS: 5000,
-                socketTimeoutMS: 45000,
-                bufferCommands: false,
-                maxPoolSize: 10,
-                minPoolSize: 1,
-                maxIdleTimeMS: 30000,
-                retryWrites: true,
-                w: 'majority'
-            }).then(() => {
-                console.log('MongoDB reconnected successfully');
-                isConnected = true;
-            }).catch((error) => {
-                console.error('MongoDB reconnection failed:', error);
-                isConnected = false;
-            });
+        if (!isConnected && mongoose.connection.readyState === 0) {
+            reconnectAttempts = 0; // Reset for fresh reconnection
+            connectToMongoDB();
         }
-    }, 5000);
+    }, 2000);
 });
 
 mongoose.connection.on('reconnected', () => {
-    console.log('MongoDB reconnected');
+    console.log('✅ MongoDB reconnected successfully');
     isConnected = true;
+    reconnectAttempts = 0; // Reset attempts on successful reconnection
 });
 
 mongoose.connection.on('error', (error) => {

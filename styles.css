@@ -1887,3 +1887,43 @@
 .messages-thread-list-modern::-webkit-scrollbar-thumb:hover {
     background: #999;
 }
+
+/* Server Status Indicator */
+.server-status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #6c757d;
+    animation: pulse 2s infinite;
+}
+
+.status-dot.status-local {
+    background: #28a745;
+}
+
+.status-dot.status-cloud {
+    background: #007bff;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.status-text {
+    color: #495057;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}

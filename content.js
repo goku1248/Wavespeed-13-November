@@ -4,19 +4,22 @@ let currentUser = null;
 let typingTimer = null;
 let scrollTimer = null;
 
-// Initialize WebSocket connection
+// Initialize WebSocket connection with dual-server support
 function initializeWebSocket() {
     if (socket) {
         socket.disconnect();
     }
     
-    // Load Socket.IO client library
+    // Load Socket.IO client library from current server
     const script = document.createElement('script');
-    // Load from backend server port
-    script.src = 'http://localhost:3001/socket.io/socket.io.js';
+    script.src = `${SERVER_BASE_URL}/socket.io/socket.io.js`;
     script.onload = () => {
         console.log('Socket.IO loaded, connecting...');
         connectWebSocket();
+    };
+    script.onerror = () => {
+        console.error('Failed to load Socket.IO from', SERVER_BASE_URL);
+        // Don't fail completely, just skip WebSocket features
     };
     document.head.appendChild(script);
 }
@@ -24,7 +27,8 @@ function initializeWebSocket() {
 function connectWebSocket() {
     // Guard against mixed-content errors on HTTPS pages by skipping WS init if blocked
     try {
-        socket = io('http://localhost:3001');
+        console.log(`Connecting WebSocket to ${SERVER_BASE_URL}`);
+        socket = io(SERVER_BASE_URL);
     } catch (e) {
         console.warn('Socket.IO connection skipped due to mixed content:', e?.message || e);
         return;
@@ -188,6 +192,10 @@ async function createCommentsPanel() {
                         <div id="user-name-header" class="user-name-header"></div>
                         <div id="user-email-header" class="user-email-header"></div>
                     </div>
+                </div>
+                <div id="server-status-indicator" class="server-status-indicator" title="Server Status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Local</span>
                 </div>
             </div>
             <div class="comments-controls">
@@ -1051,6 +1059,10 @@ async function createCommentsPanel() {
     // Initial viewport check
     ensurePanelInViewport(panel);
 
+    // Try to find a working server before loading comments
+    console.log('🔍 Finding working server...');
+    await findWorkingServer();
+    
     // Load existing comments
     await loadComments();
     await checkAuthStatus();
@@ -1060,6 +1072,15 @@ async function createCommentsPanel() {
     
     // Initialize GIF picker functionality
     initializeGifPicker();
+    
+    // Start periodic health check monitoring (every 60 seconds)
+    setInterval(async () => {
+        const isHealthy = await checkServerHealth(currentServer);
+        if (!isHealthy) {
+            console.warn(`⚠️ ${SERVERS[currentServer].name} is unhealthy, finding alternative...`);
+            await findWorkingServer();
+        }
+    }, 60000); // Check every 60 seconds
 
     // Add floating icon for minimized state
     const floatingIcon = document.createElement('div');
@@ -1427,31 +1448,127 @@ function createComment({text, user, timestamp}) {
     };
 }
 
-const API_BASE_URL = 'http://localhost:3001/api';
-// Base server URL (without /api) for endpoints like /health
-const SERVER_BASE_URL = 'http://localhost:3001';
+// Dual-server configuration with automatic fallback
+const SERVERS = {
+    local: {
+        api: 'http://localhost:3001/api',
+        base: 'http://localhost:3001',
+        name: 'Local Server'
+    },
+    cloud: {
+        api: 'https://your-app.onrender.com/api', // Update after Render deployment
+        base: 'https://your-app.onrender.com',
+        name: 'Cloud Server'
+    }
+};
 
-// Server health check function
-async function checkServerHealth() {
+// Current active server
+let currentServer = 'local';
+let API_BASE_URL = SERVERS.local.api;
+let SERVER_BASE_URL = SERVERS.local.base;
+
+// Server health check with actual fetch (bypassing apiFetch to avoid circular dependency)
+async function checkServerHealth(serverKey) {
+    const server = SERVERS[serverKey];
+    if (!server) return false;
+    
     try {
-        const response = await apiFetch(`${SERVER_BASE_URL}/health`);
-        return response && response.ok;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000); // 5s timeout for health check
+        
+        const response = await fetch(`${server.base}/health`, {
+            method: 'GET',
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeout);
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log(`✅ ${server.name} is healthy:`, data);
+            return data.database === 'connected'; // Only healthy if DB is connected
+        }
+        return false;
     } catch (error) {
-        console.log('Server health check failed:', error.message);
+        console.log(`❌ ${server.name} health check failed:`, error.message);
         return false;
     }
 }
 
-// Background-proxied fetch to avoid mixed content/CORS on HTTPS pages
-async function apiFetch(url, options = {}) {
-    return new Promise((resolve, reject) => {
+// Update server status indicator UI
+function updateServerStatusIndicator() {
+    const indicator = document.getElementById('server-status-indicator');
+    if (!indicator) return;
+    
+    const dot = indicator.querySelector('.status-dot');
+    const text = indicator.querySelector('.status-text');
+    
+    if (currentServer === 'local') {
+        if (dot) dot.className = 'status-dot status-local';
+        if (text) text.textContent = 'Local';
+        indicator.title = 'Connected to Local Server';
+    } else if (currentServer === 'cloud') {
+        if (dot) dot.className = 'status-dot status-cloud';
+        if (text) text.textContent = 'Cloud';
+        indicator.title = 'Connected to Cloud Server';
+    }
+}
+
+// Try to find a working server
+async function findWorkingServer() {
+    // Try local first
+    console.log('🔍 Checking local server...');
+    if (await checkServerHealth('local')) {
+        currentServer = 'local';
+        API_BASE_URL = SERVERS.local.api;
+        SERVER_BASE_URL = SERVERS.local.base;
+        console.log(`✅ Using ${SERVERS.local.name}`);
+        await chrome.storage.local.set({ activeServer: 'local' });
+        updateServerStatusIndicator();
+        return true;
+    }
+    
+    // Fallback to cloud
+    console.log('🔍 Checking cloud server...');
+    if (await checkServerHealth('cloud')) {
+        currentServer = 'cloud';
+        API_BASE_URL = SERVERS.cloud.api;
+        SERVER_BASE_URL = SERVERS.cloud.base;
+        console.log(`✅ Using ${SERVERS.cloud.name}`);
+        await chrome.storage.local.set({ activeServer: 'cloud' });
+        updateServerStatusIndicator();
+        return true;
+    }
+    
+    console.log('❌ No servers available');
+    return false;
+}
+
+// Initialize server on load
+(async () => {
+    try {
+        // Check stored preference
+        const stored = await chrome.storage.local.get(['activeServer']);
+        if (stored.activeServer && SERVERS[stored.activeServer]) {
+            currentServer = stored.activeServer;
+            API_BASE_URL = SERVERS[currentServer].api;
+            SERVER_BASE_URL = SERVERS[currentServer].base;
+        }
+    } catch (e) {
+        console.warn('Could not load server preference:', e);
+    }
+})();
+
+// Background-proxied fetch to avoid mixed content/CORS on HTTPS pages with automatic fallback
+async function apiFetch(url, options = {}, retryCount = 0) {
+    return new Promise(async (resolve, reject) => {
         try {
-            // Add timeout to prevent hanging requests
+            // Increase timeout to 30 seconds
             const timeout = setTimeout(() => {
                 reject(new Error('Request timeout - server may be unavailable'));
-            }, 15000); // 15 second timeout
+            }, 30000); // 30 second timeout
             
-            chrome.runtime.sendMessage({ action: 'apiFetch', url, options }, (response) => {
+            chrome.runtime.sendMessage({ action: 'apiFetch', url, options }, async (response) => {
                 clearTimeout(timeout);
                 
                 if (chrome.runtime.lastError) {
@@ -1474,10 +1591,50 @@ async function apiFetch(url, options = {}) {
                     return;
                 }
                 
+                // Check if request failed and we should try fallback server
+                if (response.error && retryCount === 0) {
+                    console.warn(`${SERVERS[currentServer].name} failed, trying fallback...`);
+                    
+                    // Try to find a working server
+                    const foundServer = await findWorkingServer();
+                    if (foundServer && currentServer !== (url.includes('localhost') ? 'local' : 'cloud')) {
+                        // Server changed, retry with new server
+                        console.log(`🔄 Retrying request with ${SERVERS[currentServer].name}`);
+                        
+                        // Update URL to use new server
+                        const newUrl = url.replace(SERVERS.local.api, API_BASE_URL).replace(SERVERS.cloud.api, API_BASE_URL);
+                        
+                        try {
+                            const retryResult = await apiFetch(newUrl, options, retryCount + 1);
+                            resolve(retryResult);
+                        } catch (retryError) {
+                            reject(retryError);
+                        }
+                        return;
+                    }
+                }
+                
                 resolve(response);
             });
         } catch (err) {
             console.error('apiFetch error:', err);
+            
+            // Try fallback server on network errors
+            if (retryCount === 0) {
+                console.warn('Network error, trying fallback server...');
+                const foundServer = await findWorkingServer();
+                if (foundServer) {
+                    const newUrl = url.replace(SERVERS.local.api, API_BASE_URL).replace(SERVERS.cloud.api, API_BASE_URL);
+                    try {
+                        const retryResult = await apiFetch(newUrl, options, retryCount + 1);
+                        resolve(retryResult);
+                        return;
+                    } catch (retryError) {
+                        // Both servers failed
+                    }
+                }
+            }
+            
             reject(new Error(`Network error: ${err.message}`));
         }
     });
