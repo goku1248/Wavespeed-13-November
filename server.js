@@ -3,7 +3,15 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
-require('dotenv').config();
+const path = require('path');
+const fs = require('fs');
+const envPath = path.resolve(process.cwd(), '.env');
+if (fs.existsSync(envPath)) {
+    require('dotenv').config({ path: envPath });
+    console.log('✅ Loaded .env file from:', envPath);
+} else {
+    console.warn('⚠️  .env file not found at:', envPath);
+}
 
 const app = express();
 const server = createServer(app);
@@ -17,6 +25,9 @@ const io = new Server(server, {
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Serve static files for Chrome extension
+app.use(express.static('.'));
 
 // Handle CORS and Private Network Access (Chrome preflight from https → http://localhost)
 app.use((req, res, next) => {
@@ -48,7 +59,7 @@ const mongooseOptions = {
     socketTimeoutMS: 75000, // 75 seconds
     connectTimeoutMS: 30000,
     heartbeatFrequencyMS: 10000,
-    bufferCommands: false,
+    bufferCommands: true,
     maxPoolSize: 50, // Increased pool size
     minPoolSize: 5, // Keep more connections alive
     maxIdleTimeMS: 60000,
@@ -381,35 +392,111 @@ function countTotalReplies(replies) {
     return count;
 }
 
+// Helper function to ensure database connection
+async function ensureDatabaseConnection() {
+    // Check actual mongoose connection state (0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting)
+    const connectionState = mongoose.connection.readyState;
+    
+    if (connectionState === 1) {
+        // Connection is active, update flag if needed
+        if (!isConnected) {
+            isConnected = true;
+        }
+        return true;
+    }
+    
+    // Not connected
+    console.error(`Database not connected (state: ${connectionState}) - attempting to reconnect...`);
+    
+    // If already connecting, wait a bit and check again
+    if (connectionState === 2) {
+        console.log('Connection already in progress, waiting for completion via mongoose asPromise()...');
+        try {
+            await mongoose.connection.asPromise();
+            if (mongoose.connection.readyState === 1) {
+                isConnected = true;
+                console.log('Connection completed while awaiting mongoose connection promise');
+                return true;
+            }
+        } catch (promiseError) {
+            console.error('Waiting for existing connection failed:', promiseError.message);
+            console.error('Attempting fresh connection...');
+        }
+    }
+    
+    // If still not connected, attempt reconnection
+    if (mongoose.connection.readyState !== 1) {
+        try {
+            // Close existing connection if in bad state
+            if (connectionState === 3 || connectionState === 2) {
+                try {
+                    await mongoose.connection.close();
+                } catch (closeError) {
+                    console.warn('Error closing existing connection:', closeError.message);
+                }
+            }
+            
+            // Attempt new connection
+            if (!MONGODB_URI) {
+                console.error('MONGODB_URI is not set');
+                throw new Error('Database configuration error: MONGODB_URI is missing');
+            }
+            
+            await mongoose.connect(MONGODB_URI, mongooseOptions);
+            isConnected = true;
+            reconnectAttempts = 0; // Reset counter on successful connection
+            console.log('✅ Reconnected to MongoDB Atlas');
+            return true;
+        } catch (reconnectError) {
+            console.error('❌ Failed to reconnect to MongoDB:', reconnectError.message);
+            console.error('Connection error details:', {
+                name: reconnectError.name,
+                code: reconnectError.code,
+                message: reconnectError.message
+            });
+            throw reconnectError;
+        }
+    }
+    
+    throw new Error('Unable to establish a database connection');
+}
+
+// Express middleware to ensure database connection for all API routes
+async function ensureDatabaseMiddleware(req, res, next) {
+    try {
+        console.log(`[DB Middleware] Incoming request: ${req.method} ${req.originalUrl}`);
+        await ensureDatabaseConnection();
+        console.log('[DB Middleware] Database connection verified');
+        next();
+    } catch (error) {
+        console.error('[DB Middleware] Database connection error:', {
+            message: error.message,
+            stack: error.stack,
+            readyState: mongoose.connection.readyState
+        });
+        res.status(500).json({
+            error: 'Database connection error',
+            details: error.message
+        });
+    }
+}
+
+// Apply the middleware to all /api routes that require database access
+app.use('/api', ensureDatabaseMiddleware);
+
 // API Routes
 
 // Get comments for a URL
 app.get('/api/comments', async (req, res) => {
     try {
-        if (!isConnected) {
-            console.error('Database not connected - attempting to reconnect...');
-            // Try to reconnect
-            try {
-                await mongoose.connect(MONGODB_URI, {
-                    useNewUrlParser: true,
-                    useUnifiedTopology: true,
-                    serverSelectionTimeoutMS: 10000,
-                    socketTimeoutMS: 45000,
-                    bufferCommands: false,
-                    maxPoolSize: 10,
-                    minPoolSize: 1,
-                    maxIdleTimeMS: 30000,
-                    retryWrites: true,
-                    w: 'majority',
-                    connectTimeoutMS: 10000,
-                    heartbeatFrequencyMS: 10000
-                });
-                isConnected = true;
-                console.log('Reconnected to MongoDB Atlas');
-            } catch (reconnectError) {
-                console.error('Failed to reconnect to MongoDB:', reconnectError);
-                return res.status(500).json({ error: 'Database connection error' });
-            }
+        // Ensure database connection before proceeding
+        try {
+            await ensureDatabaseConnection();
+        } catch (connectionError) {
+            return res.status(500).json({ 
+                error: 'Database connection error',
+                details: connectionError.message 
+            });
         }
 
         const { url } = req.query;
@@ -798,13 +885,45 @@ app.get('/api/users/search', async (req, res) => {
     try {
         if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
         const { q, limit = 10 } = req.query;
-        if (!q || String(q).trim().length === 0) return res.json([]);
-        const regex = new RegExp('^' + String(q).trim(), 'i');
-        const results = await User.find({ $or: [{ name: regex }, { email: regex }] })
-            .sort({ name: 1 })
-            .limit(Number(limit));
+        if (!q || String(q).trim().length === 0) return res.json({ results: [], unique: null });
+        
+        const searchTerm = String(q).trim();
+        // Use case-insensitive partial match (not just prefix) for better search results
+        const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        
+        const results = await User.find({ 
+            $or: [
+                { name: regex }, 
+                { email: regex }
+            ]
+        })
+        .sort({ 
+            // Prioritize exact matches, then prefix matches, then partial matches
+            name: 1 
+        })
+        .limit(Number(limit));
 
-        res.json({ results, unique: results.length === 1 ? results[0] : null });
+        // Sort results: exact matches first, then prefix matches, then others
+        const sortedResults = results.sort((a, b) => {
+            const aName = (a.name || '').toLowerCase();
+            const bName = (b.name || '').toLowerCase();
+            const aEmail = (a.email || '').toLowerCase();
+            const bEmail = (b.email || '').toLowerCase();
+            const searchLower = searchTerm.toLowerCase();
+            
+            // Exact match gets highest priority
+            if (aName === searchLower || aEmail === searchLower) return -1;
+            if (bName === searchLower || bEmail === searchLower) return 1;
+            
+            // Prefix match gets second priority
+            if (aName.startsWith(searchLower) || aEmail.startsWith(searchLower)) return -1;
+            if (bName.startsWith(searchLower) || bEmail.startsWith(searchLower)) return 1;
+            
+            // Otherwise maintain alphabetical order
+            return aName.localeCompare(bName);
+        });
+
+        res.json({ results: sortedResults, unique: sortedResults.length === 1 ? sortedResults[0] : null });
     } catch (error) {
         console.error('Error searching users:', error);
         res.status(500).json({ error: error.message });
@@ -814,9 +933,14 @@ app.get('/api/users/search', async (req, res) => {
 // Create a new comment
 app.post('/api/comments', async (req, res) => {
     try {
-        if (!isConnected) {
-            console.error('Database not connected');
-            return res.status(500).json({ error: 'Database connection error' });
+        // Ensure database connection before proceeding
+        try {
+            await ensureDatabaseConnection();
+        } catch (connectionError) {
+            return res.status(500).json({ 
+                error: 'Database connection error',
+                details: connectionError.message 
+            });
         }
 
         const { url, text, user } = req.body;

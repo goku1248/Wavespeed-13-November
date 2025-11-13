@@ -1,0 +1,44 @@
+===========================================
+CORRECTED MONGODB URI
+===========================================
+
+Your password: gokulvshetty@#123
+Contains special characters that need URL encoding:
+- @ = %40
+- # = %23
+
+CORRECTED URI (use this in your .env file):
+===========================================
+MONGODB_URI=mongodb+srv://gokulvshetty:gokulvshetty%40%23123@cluster0.0qlmqjw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+PORT=3001
+
+===========================================
+INSTRUCTIONS:
+===========================================
+
+1. Open your .env file
+2. Replace the MONGODB_URI line with the corrected one above
+3. Make sure it's all on ONE line (no line breaks)
+4. Save the file as UTF-8
+5. Restart server: .\stop-server.bat then .\start-server.bat
+6. Check: http://localhost:3001/health
+
+===========================================
+WHAT WAS WRONG:
+===========================================
+
+Your original URI:
+mongodb+srv://gokulvshetty:gokulvshetty@#123@cluster0.0qlmqjw.mongodb.net/?appName=Cluster0
+
+Problems:
+1. The @ in password conflicts with @ separator in URI
+2. The # in password needs encoding
+3. Missing standard query parameters (retryWrites, w)
+
+Fixed:
+- Encoded @ as %40
+- Encoded # as %23
+- Added retryWrites=true&w=majority
+
+===========================================
+

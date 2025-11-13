@@ -1,0 +1,84 @@
+===========================================
+QUICK FIX: Update MongoDB URI in .env File
+===========================================
+
+STEP 1: Get Correct MongoDB URI from MongoDB Atlas
+----------------------------------------------------
+1. Open: https://cloud.mongodb.com/
+2. Sign in to your account
+3. Click "Connect" button on your cluster
+4. Select "Connect your application"
+5. Choose "Node.js" driver
+6. Copy the connection string shown
+
+It will look like:
+mongodb+srv://<username>:<password>@cluster1.bckup3t.mongodb.net/?retryWrites=true&w=majority&appName=Cluster1
+
+STEP 2: Replace Placeholders
+------------------------------
+In the connection string you copied:
+- Replace <username> with your MongoDB username (probably: gokulvshetty)
+- Replace <password> with your MongoDB database password
+
+IMPORTANT: If password has special characters (@, #, :, etc.), MongoDB Atlas 
+will provide the correctly encoded version automatically.
+
+STEP 3: Update .env File
+-------------------------
+1. Open .env file in your project folder
+2. Find the line: MONGODB_URI=...
+3. Replace the entire line with your corrected URI:
+
+MONGODB_URI=mongodb+srv://YOUR_USERNAME:YOUR_PASSWORD@cluster1.bckup3t.mongodb.net/?retryWrites=true&w=majority&appName=Cluster1
+PORT=3001
+
+Make sure:
+- The URI is all on ONE line (no line breaks)
+- No spaces around the = sign
+- No quotes around the URI value
+
+STEP 4: Save File
+-----------------
+Save the .env file as UTF-8 encoding:
+- VS Code: Click encoding in bottom right → "Save with Encoding" → "UTF-8"
+- Notepad++: Encoding → "Convert to UTF-8" → Save
+
+STEP 5: Restart Server
+----------------------
+Run these commands:
+1. .\stop-server.bat
+2. .\start-server.bat
+
+STEP 6: Verify
+--------------
+Check: http://localhost:3001/health
+
+Should show: "database": "connected"
+
+If still showing "disconnected", check:
+- MongoDB Atlas → Database Access → Verify user exists
+- MongoDB Atlas → Network Access → Allow connections from anywhere (0.0.0.0/0)
+- Double-check username/password are correct (case-sensitive!)
+
+===========================================
+TROUBLESHOOTING
+===========================================
+
+If you forgot your MongoDB password:
+1. Go to MongoDB Atlas → Database Access
+2. Find your user (gokulvshetty)
+3. Click "Edit" → "Edit Password"
+4. Set a new password
+5. Update .env file with new password
+6. Restart server
+
+If you want to create a new user:
+1. MongoDB Atlas → Database Access → "Add New Database User"
+2. Username: (choose one)
+3. Password: (choose one)
+4. Role: "Atlas Admin"
+5. Click "Add User"
+6. Use new credentials in .env file
+
+===========================================
+

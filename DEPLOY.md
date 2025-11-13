@@ -37,11 +37,11 @@ This guide will help you deploy the Wavespeed backend server to Render.com for 2
    Click "Advanced" → "Add Environment Variable"
    
    Add these variables:
-   - **Key**: `MONGODB_URI`
-     **Value**: Your MongoDB connection string
-     ```
-     mongodb+srv://gokulvshetty:yuH3gFmxxmPNobnf@cluster0.0qlmqjw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
-     ```
+  - **Key**: `MONGODB_URI`
+    **Value**: Your MongoDB connection string (never commit secrets)
+    ```
+    mongodb+srv://<username>:<password>@<cluster-host>/<db>?retryWrites=true&w=majority
+    ```
    
    - **Key**: `PORT`
      **Value**: `10000` (Render uses this port)

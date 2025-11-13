@@ -39,7 +39,7 @@ A powerful Chrome extension that brings social commenting, messaging, and engage
 
 3. Set up environment variables:
    - Copy `.env.example` to `.env`
-   - Add your MongoDB connection string
+   - Add your MongoDB connection string and port
    - See [MongoDB Setup](#mongodb-setup) below
 
 4. Load extension in Chrome:
@@ -79,10 +79,10 @@ See [DEPLOY.md](DEPLOY.md) for complete Render.com deployment guide.
 3. Add a database user
 4. Whitelist your IP or allow from anywhere
 5. Get connection string and add to `.env`:
-   ```
-   MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/wavespeed?retryWrites=true&w=majority
-   PORT=3001
-   ```
+```
+MONGODB_URI=your-mongodb-uri-here
+PORT=3001
+```
 
 ## Usage
 

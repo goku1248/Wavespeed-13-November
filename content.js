@@ -1,8 +1,145 @@
+// @ts-nocheck
 // WebSocket connection management
 let socket = null;
 let currentUser = null;
 let typingTimer = null;
 let scrollTimer = null;
+
+// Shared messaging UI state accessible from sockets and panel logic
+const messagesUIState = {
+    activeSection: 'comments',
+    selectedConversationEmail: null,
+    selectedGroupId: null,
+    selectedGroupName: null,
+    isThreadLoading: false,
+    unreadCount: 0
+};
+
+function escapeHtml(input) {
+    return String(input ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatRelativeTime(date) {
+    if (!(date instanceof Date)) date = new Date(date);
+    const diff = Date.now() - date.getTime();
+    const seconds = Math.floor(diff / 1000);
+    if (seconds < 60) return 'Just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString();
+}
+
+function createMessageBubbleElement(message, { isFromMe, isGroup, isPending, messageId } = {}) {
+    const bubble = document.createElement('div');
+    bubble.className = `message-bubble-modern ${isFromMe ? 'sent' : 'received'}`;
+    if (isPending) bubble.classList.add('pending');
+    if (messageId) bubble.dataset.messageId = messageId;
+    
+    const text = escapeHtml(message?.text || '');
+    const timestamp = message?.timestamp ? new Date(message.timestamp) : new Date();
+    const timeLabel = formatRelativeTime(timestamp);
+    const senderName = !isFromMe && isGroup ? escapeHtml(message?.from?.name || message?.from?.email || '') : '';
+    
+    bubble.innerHTML = `
+        ${senderName ? `<div class="message-sender">${senderName}</div>` : ''}
+        <div class="message-text">${text || '<em>(no message)</em>'}</div>
+        <div class="message-time">${timeLabel}${isPending ? ' • Sending…' : ''}</div>
+    `;
+    
+    return bubble;
+}
+
+function renderMessagesList(listEl, messages, { isGroup, preserveScroll } = {}) {
+    if (!listEl || !Array.isArray(messages)) return;
+    
+    let previousBottomOffset = 0;
+    const shouldPreserve = preserveScroll && listEl.scrollHeight > 0;
+    if (shouldPreserve) {
+        previousBottomOffset = listEl.scrollHeight - listEl.scrollTop;
+    }
+    
+    listEl.innerHTML = '';
+    messages.forEach((msg) => {
+        const isFromMe = msg?.from?.email === currentUser?.email;
+        const bubble = createMessageBubbleElement(msg, { isFromMe, isGroup });
+        listEl.appendChild(bubble);
+    });
+    
+    if (shouldPreserve) {
+        const newScrollTop = Math.max(0, listEl.scrollHeight - previousBottomOffset);
+        listEl.scrollTop = newScrollTop;
+    } else {
+        listEl.scrollTop = listEl.scrollHeight;
+    }
+}
+
+function showMessagesLoadingState(listEl) {
+    if (!listEl) return;
+    listEl.innerHTML = `
+        <div class="messages-loading">
+            <div class="spinner"></div>
+            <span>Loading messages…</span>
+        </div>
+    `;
+}
+
+function appendMessageToThread(message, { isFromMe, isGroup, isPending, messageId } = {}) {
+    const list = document.getElementById('messages-thread-list');
+    if (!list) return null;
+    const bubble = createMessageBubbleElement(message, { isFromMe, isGroup, isPending, messageId });
+    list.appendChild(bubble);
+    list.scrollTop = list.scrollHeight;
+    return bubble;
+}
+
+function markPendingMessageStatus(messageId, status) {
+    const list = document.getElementById('messages-thread-list');
+    if (!list || !messageId) return;
+    const bubble = list.querySelector(`[data-message-id="${messageId}"], [data-message-temp-id="${messageId}"]`);
+    if (!bubble) return;
+    
+    bubble.classList.remove('pending', 'failed');
+    
+    const timeEl = bubble.querySelector('.message-time');
+    if (status === 'sent') {
+        bubble.dataset.messageId = messageId;
+        if (timeEl) {
+            timeEl.textContent = formatRelativeTime(new Date());
+        }
+    } else if (status === 'failed') {
+        bubble.classList.add('failed');
+        if (timeEl) {
+            timeEl.textContent = 'Failed to send';
+        }
+    }
+}
+
+function updateMessagesBadge(unreadCount) {
+    messagesUIState.unreadCount = unreadCount;
+    const tabsBar = document.getElementById('sections-tabs');
+    const messagesTab = tabsBar && tabsBar.querySelector('.section-tab[data-section="messages"]');
+    if (!messagesTab) return;
+    let badge = messagesTab.querySelector('.tab-badge');
+    if (unreadCount > 0) {
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'tab-badge';
+            messagesTab.appendChild(badge);
+        }
+        badge.textContent = String(unreadCount);
+    } else if (badge) {
+        badge.remove();
+    }
+}
 
 // Initialize WebSocket connection with dual-server support
 function initializeWebSocket() {
@@ -106,37 +243,22 @@ function setupWebSocketListeners() {
         console.log('Message received via socket:', msg);
         try {
             if (!msg || !currentUser) return;
-            // If the open thread is with the sender, append and scroll
-            const list = document.getElementById('messages-thread-list');
-            const header = document.getElementById('messages-thread-header');
-            const activeEmail = header && header.textContent?.startsWith('Chat with ')
-                ? header.textContent.replace('Chat with ', '')
-                : null;
-            if (list && activeEmail && msg.from && msg.from.email === activeEmail) {
-                const item = document.createElement('div');
-                item.className = 'message-item from-them';
-                item.textContent = msg.text;
-                list.appendChild(item);
-                list.scrollTop = list.scrollHeight;
-            } else {
-                // Increment badge on Messages tab (if not in messages section)
-                if (activeSectionKey !== 'messages') {
-                    const tabsBar = document.getElementById('sections-tabs');
-                    const messagesTab = tabsBar && tabsBar.querySelector('.section-tab[data-section="messages"]');
-                    if (messagesTab) {
-                        let badge = messagesTab.querySelector('.tab-badge');
-                        if (!badge) {
-                            badge = document.createElement('span');
-                            badge.className = 'tab-badge';
-                            badge.textContent = '1';
-                            messagesTab.appendChild(badge);
-                        } else {
-                            const n = parseInt(badge.textContent || '0', 10) || 0;
-                            badge.textContent = String(n + 1);
-                        }
-                    }
+            const isGroupMessage = !!msg.isGroupMessage || !!msg.groupId;
+            const isFromMe = msg.from?.email === currentUser.email;
+            const matchesActiveDirect = !isGroupMessage &&
+                messagesUIState.selectedConversationEmail &&
+                (msg.from?.email === messagesUIState.selectedConversationEmail || msg.to?.email === messagesUIState.selectedConversationEmail);
+            const matchesActiveGroup = isGroupMessage &&
+                messagesUIState.selectedGroupId &&
+                msg.groupId === messagesUIState.selectedGroupId;
+            
+            if ((matchesActiveDirect || matchesActiveGroup) && messagesUIState.activeSection === 'messages') {
+                appendMessageToThread(msg, { isFromMe, isGroup: isGroupMessage });
+                if (!isFromMe && messagesUIState.unreadCount > 0) {
+                    updateMessagesBadge(Math.max(0, messagesUIState.unreadCount - 1));
                 }
-                // In-panel toast notification
+            } else if (!isFromMe) {
+                updateMessagesBadge(messagesUIState.unreadCount + 1);
                 try {
                     showNotification(`${msg.from?.name || msg.from?.email || 'Someone'} messaged you`, 'message');
                 } catch (_) {}
@@ -145,26 +267,10 @@ function setupWebSocketListeners() {
             console.warn('Failed to render incoming message:', e);
         }
     });
-
-    socket.on('message-sent', async (msg) => {
+    
+    socket.on('message-sent', (msg) => {
         console.log('Message sent ack via socket:', msg);
-        try {
-            if (!msg || !currentUser) return;
-            const list = document.getElementById('messages-thread-list');
-            const header = document.getElementById('messages-thread-header');
-            const activeEmail = header && header.textContent?.startsWith('Chat with ')
-                ? header.textContent.replace('Chat with ', '')
-                : null;
-            if (list && activeEmail && msg.to && msg.to.email === activeEmail) {
-                const item = document.createElement('div');
-                item.className = 'message-item from-me';
-                item.textContent = msg.text;
-                list.appendChild(item);
-                list.scrollTop = list.scrollHeight;
-            }
-        } catch (e) {
-            console.warn('Failed to render sent message:', e);
-        }
+        // Polling and optimistic updates already handle local UI.
     });
 }
 
@@ -183,6 +289,7 @@ async function createCommentsPanel() {
     panel.id = 'webpage-comments-panel';
     panel.innerHTML = `
         <div id="comments-resizer"></div>
+        <div id="comments-right-resizer"></div>
         <div class="comments-header" id="comments-header">
             <div class="header-left">
                 <h3>💬 Comments</h3>
@@ -301,28 +408,28 @@ async function createCommentsPanel() {
             <div id="auth-message" class="auth-message hidden">
                 Please sign in to add comments
             </div>
-            <div id="comments-list"></div>
             <div class="comment-input-container">
                 <div class="input-wrapper">
                     <textarea id="comment-input" placeholder="Add a comment..."></textarea>
                     <button class="emoji-btn" id="comment-emoji-btn">😊</button>
                     <button class="gif-btn" id="comment-gif-btn">🎬</button>
                 </div>
-                <button id="submit-comment">Post</button>
+                <button id="submit-comment"><span>➤</span></button>
             </div>
+            <div id="comments-list"></div>
         </div>
         <div id="comments-bottom-resizer"></div>
     `;
     // Apply initial minimized state BEFORE attaching to DOM to prevent flash
     panel.style.display = initialIsMinimized ? 'none' : 'flex';
-    document.body.appendChild(panel);
-    
-    // Add emoji picker outside the panel to avoid clipping
-    const emojiPicker = document.createElement('div');
-    emojiPicker.className = 'emoji-picker';
-    emojiPicker.id = 'comment-emoji-picker';
-    emojiPicker.style.display = 'none';
-    emojiPicker.innerHTML = `
+        document.body.appendChild(panel);
+        
+        // Add emoji picker outside the panel to avoid clipping
+        const emojiPicker = document.createElement('div');
+        emojiPicker.className = 'emoji-picker';
+        emojiPicker.id = 'comment-emoji-picker';
+        emojiPicker.style.display = 'none';
+        emojiPicker.innerHTML = `
         <div class="emoji-categories">
             <button class="emoji-category active" data-category="smileys">😊</button>
             <button class="emoji-category" data-category="animals">🐶</button>
@@ -347,11 +454,18 @@ async function createCommentsPanel() {
             <input type="text" class="gif-search-input" placeholder="Search GIFs..." id="comment-gif-search">
             <button class="gif-search-btn" id="comment-gif-search-btn">🔍</button>
         </div>
+        <div class="gif-categories" id="comment-gif-categories" style="display: none;">
+            <div class="gif-category-label">Popular:</div>
+            <div class="gif-category-tags" id="comment-gif-category-tags"></div>
+        </div>
         <div class="gif-grid" id="comment-gif-grid"></div>
+        <div class="gif-load-more-container" id="comment-gif-load-more" style="display: none;">
+            <button class="gif-load-more-btn" id="comment-gif-load-more-btn">Load More GIFs</button>
+        </div>
         <div class="gif-loading" id="comment-gif-loading" style="display: none;">Loading...</div>
     `;
     document.body.appendChild(gifPicker);
-
+    
     // Set initial position
     panel.style.position = 'fixed';
     
@@ -366,6 +480,7 @@ async function createCommentsPanel() {
 
     // Add resizer and drag functionality
     addPanelResizer(panel);
+    addPanelRightResizer(panel);
     addPanelBottomResizer(panel);
     addPanelDragger(panel);
 
@@ -431,16 +546,27 @@ async function createCommentsPanel() {
     const commentsContentEl = panel.querySelector('.comments-content');
     const sortControlsEl = panel.querySelector('.custom-dropdown');
 
-    // Messages state
-    let selectedConversationEmail = null;
-    let selectedGroupId = null;
-    let selectedGroupName = null;
+    // Messages state references (shared with global socket handlers)
+    messagesUIState.selectedConversationEmail = null;
+    messagesUIState.selectedGroupId = null;
+    messagesUIState.selectedGroupName = null;
     let messagesPollTimer = null;
     let conversationsPollTimer = null;
     let groupsPollTimer = null;
     let messagesLastSeenByOther = {};
-    let activeSectionKey = 'comments';
+    messagesUIState.activeSection = 'comments';
     let currentMessagesTab = 'direct'; // 'direct' or 'groups'
+
+    function showConversationsLoading() {
+        const list = document.getElementById('conversations-list');
+        if (!list) return;
+        list.innerHTML = `
+            <div class="list-loading">
+                <div class="spinner"></div>
+                <span>Loading conversations…</span>
+            </div>
+        `;
+    }
 
     function renderConversations(conversations) {
         const list = document.getElementById('conversations-list');
@@ -481,12 +607,17 @@ async function createCommentsPanel() {
                 </div>
             `;
             btn.addEventListener('click', async () => {
-                selectedConversationEmail = other;
+                messagesUIState.selectedConversationEmail = other;
+                messagesUIState.selectedGroupId = null;
+                messagesUIState.selectedGroupName = null;
                 await loadThread(other);
                 // Mark as active
                 document.querySelectorAll('.conversation-item-modern').forEach(item => item.classList.remove('active'));
                 btn.classList.add('active');
             });
+            if (messagesUIState.selectedConversationEmail === other) {
+                btn.classList.add('active');
+            }
             list.appendChild(btn);
         });
     }
@@ -507,6 +638,17 @@ async function createCommentsPanel() {
             try { return JSON.parse(response.body || '[]'); } catch (_) { return []; }
         }
         return [];
+    }
+
+    function showGroupsLoading() {
+        const list = document.getElementById('groups-items');
+        if (!list) return;
+        list.innerHTML = `
+            <div class="list-loading">
+                <div class="spinner"></div>
+                <span>Loading groups…</span>
+            </div>
+        `;
     }
 
     function renderGroups(groups) {
@@ -536,22 +678,34 @@ async function createCommentsPanel() {
                 </div>
             `;
             btn.addEventListener('click', async () => {
-                selectedGroupId = group._id;
-                selectedGroupName = group.name;
-                selectedConversationEmail = null; // Clear direct message selection
+                messagesUIState.selectedGroupId = group._id;
+                messagesUIState.selectedGroupName = group.name;
+                messagesUIState.selectedConversationEmail = null; // Clear direct message selection
                 await loadGroupThread(group._id, group.name);
                 // Mark as active
                 document.querySelectorAll('.group-item-modern').forEach(item => item.classList.remove('active'));
                 btn.classList.add('active');
             });
+            if (messagesUIState.selectedGroupId === group._id) {
+                btn.classList.add('active');
+            }
             list.appendChild(btn);
         });
     }
 
-    async function loadGroupThread(groupId, groupName) {
+    async function loadGroupThread(groupId, groupName, { preserveScroll = false, silent = false } = {}) {
         const header = document.getElementById('messages-thread-header');
         const list = document.getElementById('messages-thread-list');
         if (!groupId || !currentUser?.email || !list) return;
+        
+        messagesUIState.selectedGroupId = groupId;
+        messagesUIState.selectedGroupName = groupName;
+        messagesUIState.selectedConversationEmail = null;
+        messagesUIState.isThreadLoading = !silent;
+        
+        if (!silent) {
+            showMessagesLoadingState(list);
+        }
         
         const response = await apiFetch(`${API_BASE_URL}/groups/${groupId}/messages?userEmail=${encodeURIComponent(currentUser.email)}&limit=100`);
         let messages = [];
@@ -559,133 +713,179 @@ async function createCommentsPanel() {
             try { messages = JSON.parse(response.body || '[]'); } catch (_) {} 
         }
         
-        // Update header for group
+        const lastMessage = messages[messages.length - 1];
+        const statusText = lastMessage
+            ? `Last message ${formatRelativeTime(new Date(lastMessage.timestamp))}`
+            : 'Create the first group message';
+        const memberCount = lastMessage?.participants?.length || '';
+        
         if (header) {
             header.innerHTML = `
                 <div class="conversation-info">
                     <div class="conversation-avatar">👥</div>
                     <div class="conversation-details">
-                        <div class="conversation-name">${groupName}</div>
-                        <div class="conversation-status">Group chat</div>
+                        <div class="conversation-name">${escapeHtml(groupName)}</div>
+                        <div class="conversation-status">${escapeHtml(statusText)}</div>
                     </div>
                 </div>
             `;
         }
         
-        // Render group messages with modern bubbles
-        list.innerHTML = '';
-        messages.forEach((msg) => {
-            const item = document.createElement('div');
-            const isFromMe = msg.from.email === currentUser.email;
-            item.className = `message-bubble-modern ${isFromMe ? 'sent' : 'received'}`;
-            const time = new Date(msg.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-            item.innerHTML = `
-                ${!isFromMe ? `<div style="font-size: 11px; font-weight: 600; color: #65676b; margin-bottom: 2px;">${msg.from.name || msg.from.email}</div>` : ''}
-                <div>${msg.text}</div>
-                <div class="message-time">${time}</div>
-            `;
-            list.appendChild(item);
+        renderMessagesList(list, messages, { isGroup: true, preserveScroll });
+        messagesUIState.isThreadLoading = false;
+    }
+
+    function setupGroupModal() {
+        const existing = document.getElementById('create-group-modal');
+        if (existing) existing.remove();
+        const modal = document.createElement('div');
+        modal.id = 'create-group-modal';
+        modal.className = 'modal-backdrop hidden';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <h3>Create New Group</h3>
+                <form id="create-group-form">
+                    <label>
+                        Group name
+                        <input type="text" name="group-name" required maxlength="80" placeholder="Enter group name" />
+                    </label>
+                    <label>
+                        Description <span class="optional">(optional)</span>
+                        <textarea name="group-description" rows="3" maxlength="240" placeholder="Add a short description"></textarea>
+                    </label>
+                    <p class="modal-hint">Member selection is coming soon. For now, create the group and invite others via search.</p>
+                    <div class="modal-error" aria-live="polite"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary" data-action="cancel">Cancel</button>
+                        <button type="submit" class="primary">Create group</button>
+                    </div>
+                </form>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        
+        const form = modal.querySelector('#create-group-form');
+        const cancelBtn = modal.querySelector('[data-action="cancel"]');
+        const errorEl = modal.querySelector('.modal-error');
+        const submitBtn = modal.querySelector('button.primary');
+        const nameInput = modal.querySelector('input[name="group-name"]');
+        const descriptionInput = modal.querySelector('textarea[name="group-description"]');
+        
+        function closeModal() {
+            modal.classList.add('hidden');
+            errorEl.textContent = '';
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Create group';
+            form.reset();
+        }
+        
+        cancelBtn.addEventListener('click', () => {
+            closeModal();
         });
-        list.scrollTop = list.scrollHeight;
-    }
-
-    async function createGroup() {
-        const name = prompt('Enter group name:');
-        if (!name || !name.trim()) return;
         
-        const description = prompt('Enter group description (optional):') || '';
-        
-        if (!currentUser) {
-            alert('Please log in to create a group');
-            return;
-        }
-        
-        try {
-            const response = await apiFetch(`${API_BASE_URL}/groups`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: {
-                    name: name.trim(),
-                    description: description.trim(),
-                    createdBy: currentUser,
-                    members: [] // Start with just the creator
-                }
-            });
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!currentUser) {
+                errorEl.textContent = 'Please sign in to create a group.';
+                return;
+            }
             
-            if (response?.ok) {
-                // Refresh groups list
-                const groups = await fetchGroups();
-                renderGroups(groups);
-                alert('Group created successfully!');
-            } else {
-                alert('Failed to create group');
+            const name = nameInput.value.trim();
+            const description = descriptionInput.value.trim();
+            if (!name) {
+                errorEl.textContent = 'Group name is required.';
+                nameInput.focus();
+                return;
             }
-        } catch (error) {
-            console.error('Error creating group:', error);
-            alert('Error creating group: ' + error.message);
-        }
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating…';
+            errorEl.textContent = '';
+            
+            try {
+                const response = await apiFetch(`${API_BASE_URL}/groups`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: {
+                        name,
+                        description,
+                        createdBy: currentUser,
+                        members: []
+                    }
+                });
+                
+                if (response?.ok) {
+                    closeModal();
+                    showNotification('Group created successfully!', 'success');
+                    const groups = await fetchGroups();
+                    renderGroups(groups);
+                } else {
+                    errorEl.textContent = 'Failed to create group. Please try again.';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Create group';
+                }
+            } catch (error) {
+                console.error('Error creating group:', error);
+                errorEl.textContent = error.message || 'Unexpected error creating group.';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create group';
+            }
+        });
+        
+        return {
+            open: () => {
+                modal.classList.remove('hidden');
+                setTimeout(() => nameInput.focus(), 50);
+            },
+            close: closeModal
+        };
     }
 
-    function updateMessagesBadge(unreadCount) {
-        const tabsBar = document.getElementById('sections-tabs');
-        const messagesTab = tabsBar && tabsBar.querySelector('.section-tab[data-section="messages"]');
-        if (!messagesTab) return;
-        let badge = messagesTab.querySelector('.tab-badge');
-        if (unreadCount > 0) {
-            if (!badge) {
-                badge = document.createElement('span');
-                badge.className = 'tab-badge';
-                messagesTab.appendChild(badge);
-            }
-            badge.textContent = String(unreadCount);
-        } else if (badge) {
-            badge.remove();
-        }
-    }
-
-    async function loadThread(otherEmail) {
+    async function loadThread(otherEmail, { preserveScroll = false, silent = false } = {}) {
         const header = document.getElementById('messages-thread-header');
         const list = document.getElementById('messages-thread-list');
         if (!otherEmail || !currentUser?.email || !list) return;
         
+        messagesUIState.selectedConversationEmail = otherEmail;
+        messagesUIState.selectedGroupId = null;
+        messagesUIState.selectedGroupName = null;
+        messagesUIState.isThreadLoading = !silent;
+        
+        if (!silent) {
+            showMessagesLoadingState(list);
+        }
+        
         const response = await apiFetch(`${API_BASE_URL}/messages?userEmail=${encodeURIComponent(currentUser.email)}&otherEmail=${encodeURIComponent(otherEmail)}&limit=100`);
         let messages = [];
-        if (response?.ok) { try { messages = JSON.parse(response.body || '[]'); } catch (_) {} }
+        if (response?.ok) {
+            try { messages = JSON.parse(response.body || '[]'); } catch (_) {}
+        }
         
-        // Get user info from messages or use email
-        const otherName = messages.length > 0 ? (messages[0].from.email === otherEmail ? messages[0].from.name : messages[0].to.name) : otherEmail;
-        const otherPicture = messages.length > 0 ? (messages[0].from.email === otherEmail ? messages[0].from.picture : messages[0].to.picture) : null;
+        const lastMessage = messages[messages.length - 1];
+        const otherProfile = lastMessage
+            ? (lastMessage.from.email === otherEmail ? lastMessage.from : lastMessage.to)
+            : { email: otherEmail };
+        const statusText = lastMessage
+            ? `Last message ${formatRelativeTime(new Date(lastMessage.timestamp))}`
+            : 'Start a conversation';
         
-        // Update header with modern design
         if (header) {
             header.innerHTML = `
                 <div class="conversation-info">
                     <div class="conversation-avatar">
-                        ${otherPicture ? `<img src="${otherPicture}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />` : '👤'}
+                        ${otherProfile?.picture ? `<img src="${otherProfile.picture}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />` : '👤'}
                     </div>
                     <div class="conversation-details">
-                        <div class="conversation-name">${otherName || otherEmail}</div>
-                        <div class="conversation-status online">Active now</div>
+                        <div class="conversation-name">${escapeHtml(otherProfile?.name || otherProfile.email || otherEmail)}</div>
+                        <div class="conversation-status">${escapeHtml(statusText)}</div>
                     </div>
                 </div>
             `;
         }
         
-        // Render messages with modern bubbles
-        list.innerHTML = '';
-        messages.forEach((m) => {
-            const item = document.createElement('div');
-            const isFromMe = m.from?.email === currentUser.email;
-            item.className = `message-bubble-modern ${isFromMe ? 'sent' : 'received'}`;
-            const time = new Date(m.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-            item.innerHTML = `
-                <div>${m.text}</div>
-                <div class="message-time">${time}</div>
-            `;
-            list.appendChild(item);
-        });
-        list.scrollTop = list.scrollHeight;
-
+        renderMessagesList(list, messages, { isGroup: false, preserveScroll });
+        messagesUIState.isThreadLoading = false;
+        
         // Update last-seen for this conversation
         try {
             const latestTs = messages.length ? new Date(messages[messages.length - 1].timestamp).getTime() : Date.now();
@@ -703,8 +903,8 @@ async function createCommentsPanel() {
                 hasInput: !!input,
                 hasValue: input?.value?.trim(),
                 hasUser: !!currentUser,
-                selectedEmail: selectedConversationEmail,
-                selectedGroup: selectedGroupId
+                selectedEmail: messagesUIState.selectedConversationEmail,
+                selectedGroup: messagesUIState.selectedGroupId
             });
             return;
         }
@@ -712,19 +912,19 @@ async function createCommentsPanel() {
         const text = input.value.trim();
         let payload;
         
-        if (selectedGroupId) {
+        if (messagesUIState.selectedGroupId) {
             // Send group message
             payload = { 
                 from: currentUser, 
                 text, 
-                groupId: selectedGroupId, 
-                groupName: selectedGroupName 
+                groupId: messagesUIState.selectedGroupId, 
+                groupName: messagesUIState.selectedGroupName 
             };
-        } else if (selectedConversationEmail) {
+        } else if (messagesUIState.selectedConversationEmail) {
             // Send direct message
             payload = { 
                 from: currentUser, 
-                to: { email: selectedConversationEmail }, 
+                to: { email: messagesUIState.selectedConversationEmail }, 
                 text 
             };
         } else {
@@ -733,7 +933,18 @@ async function createCommentsPanel() {
             return;
         }
         
-        console.log('Sending message:', { to: selectedConversationEmail || selectedGroupId, text });
+        console.log('Sending message:', { to: messagesUIState.selectedConversationEmail || messagesUIState.selectedGroupId, text });
+        
+        const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const pendingBubble = appendMessageToThread(
+            { text, timestamp: new Date().toISOString(), from: currentUser },
+            { 
+                isFromMe: true, 
+                isGroup: Boolean(messagesUIState.selectedGroupId), 
+                isPending: true, 
+                messageId: pendingId 
+            }
+        );
         
         const res = await apiFetch(`${API_BASE_URL}/messages`, { 
             method: 'POST', 
@@ -741,35 +952,26 @@ async function createCommentsPanel() {
             body: payload 
         });
         
+        if (pendingBubble) {
+            pendingBubble.dataset.messageTempId = pendingId;
+        }
+        
         if (res?.ok) {
             console.log('Message sent successfully');
             input.value = '';
-            
-            // Append message to UI immediately for instant feedback
-            const list = document.getElementById('messages-thread-list');
-            if (list) {
-                const item = document.createElement('div');
-                item.className = 'message-bubble-modern sent';
-                const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-                item.innerHTML = `
-                    <div>${text}</div>
-                    <div class="message-time">${time}</div>
-                `;
-                list.appendChild(item);
-                list.scrollTop = list.scrollHeight;
-            }
-            
-            // Then reload to get official message from server
+            markPendingMessageStatus(pendingId, 'sent');
+            // Reload to get official message from server (for timestamps / ids)
             setTimeout(async () => {
-                if (selectedGroupId) {
-                    await loadGroupThread(selectedGroupId, selectedGroupName);
-                } else {
-                    await loadThread(selectedConversationEmail);
+                if (messagesUIState.selectedGroupId) {
+                    await loadGroupThread(messagesUIState.selectedGroupId, messagesUIState.selectedGroupName, { preserveScroll: true, silent: true });
+                } else if (messagesUIState.selectedConversationEmail) {
+                    await loadThread(messagesUIState.selectedConversationEmail, { preserveScroll: true, silent: true });
                 }
-            }, 500);
+            }, 600);
         } else {
             console.error('Failed to send message:', res);
-            alert('Failed to send message. Please try again.');
+            markPendingMessageStatus(pendingId, 'failed');
+            showNotification('Failed to send message. Please try again.', 'error');
         }
     }
 
@@ -806,12 +1008,13 @@ async function createCommentsPanel() {
         const directTab = document.getElementById('direct-messages-tab');
         const groupsTab = document.getElementById('group-messages-tab');
         const createGroupBtn = document.getElementById('create-group-btn');
+        const groupModalController = setupGroupModal();
         
         if (sendBtn) sendBtn.addEventListener('click', sendMessage);
         if (input) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
         if (directTab) directTab.addEventListener('click', () => switchMessagesTab('direct'));
         if (groupsTab) groupsTab.addEventListener('click', () => switchMessagesTab('groups'));
-        if (createGroupBtn) createGroupBtn.addEventListener('click', createGroup);
+        if (createGroupBtn) createGroupBtn.addEventListener('click', () => groupModalController.open());
         if (searchInput) {
             async function handleSearch() {
                 const q = (searchInput.value || '').trim();
@@ -821,19 +1024,30 @@ async function createCommentsPanel() {
                     renderConversations(convs);
                     return;
                 }
-                // Query users for prefix match and unique detection
+                // Query users for search match and unique detection
+                console.log('Searching for users with query:', q);
                 const res = await apiFetch(`${API_BASE_URL}/users/search?q=${encodeURIComponent(q)}`);
+                console.log('Search API response:', res);
+                
                 if (res?.ok) {
                     let payload = {};
-                    try { payload = JSON.parse(res.body || '{}'); } catch (_) {}
+                    try { 
+                        payload = JSON.parse(res.body || '{}'); 
+                        console.log('Parsed search payload:', payload);
+                    } catch (parseError) {
+                        console.error('Error parsing search response:', parseError, res.body);
+                    }
                     const unique = payload.unique;
                     const results = payload.results || [];
                     const list = document.getElementById('conversations-list');
                     
+                    console.log('Search results:', { unique, resultsCount: results.length, results });
+                    
                     if (unique && unique.email) {
                         // Show the resolved username immediately and select conversation
-                        selectedConversationEmail = unique.email;
-                        selectedGroupId = null; // Clear group selection
+                        messagesUIState.selectedConversationEmail = unique.email;
+                        messagesUIState.selectedGroupId = null; // Clear group selection
+                        messagesUIState.selectedGroupName = null;
                         console.log('Selected user:', unique.email);
                         
                         // Clear search input
@@ -848,7 +1062,7 @@ async function createCommentsPanel() {
                     } else if (results.length > 0) {
                         // Render top results for disambiguation
                         if (list) {
-                            list.innerHTML = '<div style="padding: 8px 16px; font-size: 12px; color: #65676b; font-weight: 600;">Search Results</div>';
+                            list.innerHTML = '<div style="padding: 8px 16px; font-size: 12px; color: #65676b; font-weight: 600;">Search Results (' + results.length + ')</div>';
                             results.forEach((u) => {
                                 const btn = document.createElement('button');
                                 btn.className = 'conversation-item-modern';
@@ -860,8 +1074,9 @@ async function createCommentsPanel() {
                                     </div>
                                 `;
                                 btn.addEventListener('click', async () => {
-                                    selectedConversationEmail = u.email;
-                                    selectedGroupId = null; // Clear group selection
+                                    messagesUIState.selectedConversationEmail = u.email;
+                                    messagesUIState.selectedGroupId = null; // Clear group selection
+                                    messagesUIState.selectedGroupName = null;
                                     console.log('Selected user from search:', u.email);
                                     
                                     // Clear search and reload
@@ -886,10 +1101,23 @@ async function createCommentsPanel() {
                                 <div class="empty-state-modern">
                                     <div class="icon">🔍</div>
                                     <h3>No users found</h3>
-                                    <p>The user "${q}" hasn't used Wavespeed yet. They need to install the extension first.</p>
+                                    <p>No users matching "${q}" were found. They may need to install the Wavespeed extension and sign in first.</p>
                                 </div>
                             `;
                         }
+                    }
+                } else {
+                    // API error
+                    console.error('Search API error:', res);
+                    const list = document.getElementById('conversations-list');
+                    if (list) {
+                        list.innerHTML = `
+                            <div class="empty-state-modern">
+                                <div class="icon">⚠️</div>
+                                <h3>Search Error</h3>
+                                <p>Failed to search for users. Please try again.</p>
+                            </div>
+                        `;
                     }
                 }
             }
@@ -938,7 +1166,9 @@ async function createCommentsPanel() {
         } catch (_) { messagesLastSeenByOther = {}; }
 
         // initial data
+        showConversationsLoading();
         fetchConversations().then(renderConversations);
+        showGroupsLoading();
         fetchGroups().then(renderGroups);
 
         // Start polling conversations every 12s
@@ -947,7 +1177,7 @@ async function createCommentsPanel() {
             const convs = await fetchConversations();
             renderConversations(convs);
             // Compute unread if not on messages section
-            if (activeSectionKey !== 'messages') {
+            if (messagesUIState.activeSection !== 'messages') {
                 let unread = 0;
                 convs.forEach((c) => {
                     const other = c.otherEmail || (c.lastMessage && (c.lastMessage.from.email === currentUser?.email ? c.lastMessage.to.email : c.lastMessage.from.email));
@@ -965,16 +1195,19 @@ async function createCommentsPanel() {
             renderGroups(groups);
         }, 15000);
 
-        // Start polling current thread every 3s
+        // Start polling current thread every 6s when thread not receiving socket updates
         messagesPollTimer = setInterval(async () => {
-            if (selectedConversationEmail) {
-                await loadThread(selectedConversationEmail);
+            if (messagesUIState.activeSection !== 'messages') return;
+            if (messagesUIState.selectedConversationEmail) {
+                await loadThread(messagesUIState.selectedConversationEmail, { preserveScroll: true, silent: true });
+            } else if (messagesUIState.selectedGroupId) {
+                await loadGroupThread(messagesUIState.selectedGroupId, messagesUIState.selectedGroupName, { preserveScroll: true, silent: true });
             }
-        }, 3000);
+        }, 6000);
     }
 
     async function setActiveSection(sectionKey) {
-        activeSectionKey = sectionKey;
+        messagesUIState.activeSection = sectionKey;
         // Update tab active state
         tabs.forEach((btn) => {
             const isActive = btn.getAttribute('data-section') === sectionKey;
@@ -991,6 +1224,9 @@ async function createCommentsPanel() {
             if (commentsContentEl) commentsContentEl.style.display = 'block';
             if (sortControlsEl) sortControlsEl.style.display = '';
         } else {
+            if (sectionKey === 'messages') {
+                updateMessagesBadge(0);
+            }
             if (sectionsContainer) sectionsContainer.classList.remove('hidden');
             if (commentsContentEl) commentsContentEl.style.display = 'none';
             if (sortControlsEl) sortControlsEl.style.display = 'none';
@@ -1061,7 +1297,21 @@ async function createCommentsPanel() {
 
     // Try to find a working server before loading comments
     console.log('🔍 Finding working server...');
-    await findWorkingServer();
+    const serverFound = await findWorkingServer();
+    if (!serverFound) {
+        console.warn('⚠️ No working server found initially');
+        if (CLOUD_SERVER_ENABLED) {
+            // If no server found, default to cloud (more likely to be available)
+            console.log('🔄 Defaulting to cloud server...');
+            currentServer = 'cloud';
+            API_BASE_URL = SERVERS.cloud.api;
+            SERVER_BASE_URL = SERVERS.cloud.base;
+            await chrome.storage.local.set({ activeServer: 'cloud' });
+            updateServerStatusIndicator();
+        } else {
+            console.warn('☁️ Cloud server fallback disabled; remaining on local configuration.');
+        }
+    }
     
     // Load existing comments
     await loadComments();
@@ -1072,6 +1322,9 @@ async function createCommentsPanel() {
     
     // Initialize GIF picker functionality
     initializeGifPicker();
+    
+    // Initialize vertical auto-resize for comment input
+    initializeCommentInputVerticalResize();
     
     // Start periodic health check monitoring (every 60 seconds)
     setInterval(async () => {
@@ -1273,6 +1526,69 @@ function addPanelResizer(panel) {
     });
 }
 
+function addPanelRightResizer(panel) {
+    const resizer = panel.querySelector('#comments-right-resizer');
+    
+    if (!resizer) {
+        console.error('Right resizer element not found!');
+        return;
+    }
+    
+    resizer.addEventListener('mousedown', function(e) {
+        const panelRect = panel.getBoundingClientRect();
+        const startX = e.clientX;
+        const startWidth = panelRect.width;
+        const computedStyle = window.getComputedStyle(panel);
+        const isAnchoredLeft = computedStyle.left && computedStyle.left !== 'auto';
+        const startLeft = panelRect.left;
+        const startRightMargin = window.innerWidth - panelRect.right;
+        const minWidth = 220;
+        const maxWidthFromLeft = window.innerWidth - startLeft - 20;
+        const maxWidthFromRight = window.innerWidth - startRightMargin - 20;
+        
+        document.body.style.cursor = 'ew-resize';
+        e.preventDefault();
+        e.stopPropagation();
+        
+        function onMouseMove(e) {
+            if (isAnchoredLeft) {
+                const deltaX = e.clientX - startX;
+                let newWidth = startWidth + deltaX;
+                const maxWidth = Math.max(minWidth, Math.min(maxWidthFromLeft, window.innerWidth - 20));
+                newWidth = Math.max(minWidth, Math.min(newWidth, maxWidth));
+                panel.style.width = newWidth + 'px';
+                panel.style.left = Math.max(0, startLeft) + 'px';
+                panel.style.right = '';
+            } else {
+                const deltaX = startX - e.clientX;
+                let newWidth = startWidth + deltaX;
+                const maxWidth = Math.max(minWidth, Math.min(maxWidthFromRight, window.innerWidth - 20));
+                newWidth = Math.max(minWidth, Math.min(newWidth, maxWidth));
+                const rightEdge = window.innerWidth - startRightMargin;
+                let newLeft = rightEdge - newWidth;
+                if (newLeft < 0) {
+                    newWidth = rightEdge;
+                    newLeft = 0;
+                }
+                panel.style.width = newWidth + 'px';
+                panel.style.left = newLeft + 'px';
+                panel.style.right = '';
+            }
+        }
+        
+        function onMouseUp() {
+            document.body.style.cursor = '';
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+            ensurePanelInViewport(panel);
+            savePanelState(panel);
+        }
+        
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+    });
+}
+
 function addPanelBottomResizer(panel) {
     const resizer = panel.querySelector('#comments-bottom-resizer');
     let isResizing = false;
@@ -1313,10 +1629,27 @@ function addPanelDragger(panel) {
     let isDragging = false;
     let startX = 0, startY = 0;
     let startLeft = 0, startTop = 0;
+    let animationFrameId = null;
 
     header.style.cursor = 'move';
+    
+    // Make header children non-draggable except the header itself
+    const headerChildren = header.querySelectorAll('*');
+    headerChildren.forEach(child => {
+        child.style.pointerEvents = 'auto';
+    });
 
     header.addEventListener('mousedown', function(e) {
+        // Don't start dragging if clicking on interactive elements
+        const target = e.target;
+        if (target.tagName === 'BUTTON' || 
+            target.closest('button') || 
+            target.closest('.custom-dropdown') ||
+            target.closest('input') ||
+            target.closest('select')) {
+            return;
+        }
+        
         isDragging = true;
         const rect = panel.getBoundingClientRect();
         startX = e.clientX;
@@ -1324,29 +1657,61 @@ function addPanelDragger(panel) {
         startLeft = rect.left;
         startTop = rect.top;
         panel.style.right = 'unset';
+        panel.style.transition = 'none'; // Disable transitions during drag for instant response
+        panel.classList.add('dragging'); // Add dragging class for CSS
         document.body.style.cursor = 'move';
+        document.body.style.userSelect = 'none'; // Prevent text selection during drag
         e.preventDefault();
+        e.stopPropagation();
+
+        function updatePosition(e) {
+            if (!isDragging) return;
+            
+            const deltaX = e.clientX - startX;
+            const deltaY = e.clientY - startY;
+            
+            let newLeft = startLeft + deltaX;
+            let newTop = startTop + deltaY;
+            
+            // Constrain to viewport
+            const panelWidth = panel.offsetWidth;
+            const panelHeight = panel.offsetHeight;
+            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - panelWidth));
+            newTop = Math.max(0, Math.min(newTop, window.innerHeight - panelHeight));
+            
+            // Use requestAnimationFrame for smooth updates
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+            
+            animationFrameId = requestAnimationFrame(() => {
+                panel.style.left = newLeft + 'px';
+                panel.style.top = newTop + 'px';
+            });
+        }
 
         function onMouseMove(e) {
-            if (!isDragging) return;
-            let newLeft = startLeft + (e.clientX - startX);
-            let newTop = startTop + (e.clientY - startY);
-            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - panel.offsetWidth));
-            newTop = Math.max(0, Math.min(newTop, window.innerHeight - panel.offsetHeight));
-            panel.style.left = newLeft + 'px';
-            panel.style.top = newTop + 'px';
+            updatePosition(e);
         }
 
         function onMouseUp() {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            
             isDragging = false;
+            panel.style.transition = ''; // Re-enable transitions
+            panel.classList.remove('dragging'); // Remove dragging class
             document.body.style.cursor = '';
+            document.body.style.userSelect = ''; // Re-enable text selection
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
             ensurePanelInViewport(panel);
             savePanelState(panel);
         }
 
-        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mousemove', onMouseMove, { passive: false });
         window.addEventListener('mouseup', onMouseUp);
     });
 }
@@ -1449,6 +1814,8 @@ function createComment({text, user, timestamp}) {
 }
 
 // Dual-server configuration with automatic fallback
+const CLOUD_SERVER_ENABLED = false;
+
 const SERVERS = {
     local: {
         api: 'http://localhost:3001/api',
@@ -1456,19 +1823,23 @@ const SERVERS = {
         name: 'Local Server'
     },
     cloud: {
-        api: 'https://your-app.onrender.com/api', // Update after Render deployment
-        base: 'https://your-app.onrender.com',
+        api: 'https://wavespeed-final-for-render-com.onrender.com/api',
+        base: 'https://wavespeed-final-for-render-com.onrender.com',
         name: 'Cloud Server'
     }
 };
 
-// Current active server
+// Current active server (prefer local for development)
 let currentServer = 'local';
 let API_BASE_URL = SERVERS.local.api;
 let SERVER_BASE_URL = SERVERS.local.base;
 
 // Server health check with actual fetch (bypassing apiFetch to avoid circular dependency)
 async function checkServerHealth(serverKey) {
+    if (serverKey === 'cloud' && !CLOUD_SERVER_ENABLED) {
+        console.log('☁️ Cloud server disabled; skipping health check.');
+        return false;
+    }
     const server = SERVERS[serverKey];
     if (!server) return false;
     
@@ -1529,6 +1900,10 @@ async function findWorkingServer() {
     }
     
     // Fallback to cloud
+    if (!CLOUD_SERVER_ENABLED) {
+        console.warn('☁️ Cloud server fallback disabled. No other servers available.');
+        return false;
+    }
     console.log('🔍 Checking cloud server...');
     if (await checkServerHealth('cloud')) {
         currentServer = 'cloud';
@@ -1544,18 +1919,30 @@ async function findWorkingServer() {
     return false;
 }
 
-// Initialize server on load
+// Initialize server on load - verify server is actually available
 (async () => {
     try {
         // Check stored preference
         const stored = await chrome.storage.local.get(['activeServer']);
         if (stored.activeServer && SERVERS[stored.activeServer]) {
-            currentServer = stored.activeServer;
+            currentServer = (!CLOUD_SERVER_ENABLED && stored.activeServer === 'cloud') ? 'local' : stored.activeServer;
             API_BASE_URL = SERVERS[currentServer].api;
             SERVER_BASE_URL = SERVERS[currentServer].base;
+            
+            // Verify the stored server is actually available, if not, find working one
+            const isHealthy = await checkServerHealth(currentServer);
+            if (!isHealthy) {
+                console.warn(`⚠️ Stored server (${SERVERS[currentServer].name}) is not available, finding alternative...`);
+                await findWorkingServer();
+            }
+        } else {
+            // No stored preference, find working server
+            await findWorkingServer();
         }
     } catch (e) {
         console.warn('Could not load server preference:', e);
+        // On error, try to find working server
+        await findWorkingServer();
     }
 })();
 
@@ -1592,7 +1979,7 @@ async function apiFetch(url, options = {}, retryCount = 0) {
                 }
                 
                 // Check if request failed and we should try fallback server
-                if (response.error && retryCount === 0) {
+                if (response.error && retryCount === 0 && CLOUD_SERVER_ENABLED) {
                     console.warn(`${SERVERS[currentServer].name} failed, trying fallback...`);
                     
                     // Try to find a working server
@@ -1620,7 +2007,7 @@ async function apiFetch(url, options = {}, retryCount = 0) {
             console.error('apiFetch error:', err);
             
             // Try fallback server on network errors
-            if (retryCount === 0) {
+            if (retryCount === 0 && CLOUD_SERVER_ENABLED) {
                 console.warn('Network error, trying fallback server...');
                 const foundServer = await findWorkingServer();
                 if (foundServer) {
@@ -1683,15 +2070,89 @@ async function loadComments(sortBy = currentSortBy, retryCount = 0) {
     }
 
     try {
+        // Ensure we have a working server before attempting to fetch
+        // Skip health check if cloud failed before (stored in session)
+        const cloudFailedBefore = sessionStorage.getItem('cloud_server_failed') === 'true';
+        
+        if (retryCount === 0) {
+            if (CLOUD_SERVER_ENABLED && currentServer === 'local' && !cloudFailedBefore) {
+                try {
+                    const serverWorking = await checkServerHealth('local');
+                    if (!serverWorking) {
+                        console.warn(`⚠️ Local server is not healthy, switching to cloud...`);
+                        // Immediately switch to cloud without checking health (faster)
+                        currentServer = 'cloud';
+                        API_BASE_URL = SERVERS.cloud.api;
+                        SERVER_BASE_URL = SERVERS.cloud.base;
+                        await chrome.storage.local.set({ activeServer: 'cloud' });
+                        updateServerStatusIndicator();
+                        console.log('✅ Switched to cloud server');
+                    }
+                } catch (healthCheckError) {
+                    console.warn('Local server health check failed, switching to cloud:', healthCheckError);
+                    // If local health check fails, immediately switch to cloud
+                    currentServer = 'cloud';
+                    API_BASE_URL = SERVERS.cloud.api;
+                    SERVER_BASE_URL = SERVERS.cloud.base;
+                    await chrome.storage.local.set({ activeServer: 'cloud' });
+                    updateServerStatusIndicator();
+                    console.log('✅ Switched to cloud server');
+                }
+            } else if (!CLOUD_SERVER_ENABLED) {
+                // Force local server usage when cloud is disabled
+                currentServer = 'local';
+                API_BASE_URL = SERVERS.local.api;
+                SERVER_BASE_URL = SERVERS.local.base;
+                await chrome.storage.local.set({ activeServer: 'local' });
+                updateServerStatusIndicator();
+            } else if (currentServer === 'cloud' && cloudFailedBefore) {
+                // If cloud failed before, try local directly
+                console.log('🔄 Cloud server failed previously, trying local server...');
+                currentServer = 'local';
+                API_BASE_URL = SERVERS.local.api;
+                SERVER_BASE_URL = SERVERS.local.base;
+                await chrome.storage.local.set({ activeServer: 'local' });
+                updateServerStatusIndicator();
+                sessionStorage.removeItem('cloud_server_failed'); // Reset flag
+            }
+        }
+        
         console.log('Fetching comments for URL:', currentUrl);
+        console.log('Using server:', SERVERS[currentServer].name, API_BASE_URL);
         const response = await apiFetch(`${API_BASE_URL}/comments?url=${encodeURIComponent(currentUrl)}`);
         
         if (!response || response.error) {
             const message = response?.error || 'Unknown error';
             console.error('Background apiFetch failed:', message);
             
+            // If we haven't tried finding a working server yet, try that first
+            if (retryCount === 0) {
+                console.log('🔄 Attempting to find working server...');
+                const foundServer = await findWorkingServer();
+                if (foundServer) {
+                    // Server might have changed, retry immediately with new server
+                    console.log(`✅ Found working server: ${SERVERS[currentServer].name}, retrying...`);
+                    return await loadComments(sortBy, retryCount + 1);
+                } else {
+                    // No server found, but if error mentions localhost, try cloud explicitly (if enabled)
+                    if (CLOUD_SERVER_ENABLED && (message.includes('localhost') || message.includes('local server'))) {
+                        console.log('🔄 Local server failed, explicitly trying cloud server...');
+                        currentServer = 'cloud';
+                        API_BASE_URL = SERVERS.cloud.api;
+                        SERVER_BASE_URL = SERVERS.cloud.base;
+                        const cloudHealthy = await checkServerHealth('cloud');
+                        if (cloudHealthy) {
+                            console.log('✅ Cloud server is available, retrying...');
+                            await chrome.storage.local.set({ activeServer: 'cloud' });
+                            updateServerStatusIndicator();
+                            return await loadComments(sortBy, retryCount + 1);
+                        }
+                    }
+                }
+            }
+            
             // Check if this is a network error that might be retryable
-            if (retryCount < 3 && (message.includes('fetch') || message.includes('network') || message.includes('timeout'))) {
+            if (retryCount < 3 && (message.includes('fetch') || message.includes('network') || message.includes('timeout') || message.includes('connect'))) {
                 console.log(`Retrying in ${(retryCount + 1) * 2} seconds...`);
                 setTimeout(() => loadComments(sortBy, retryCount + 1), (retryCount + 1) * 2000);
                 return;
@@ -1707,6 +2168,64 @@ async function loadComments(sortBy = currentSortBy, retryCount = 0) {
                 body: response.body
             });
             
+                // Handle 404 - endpoint might not exist on this server, try switching
+                if (CLOUD_SERVER_ENABLED && response.status === 404 && retryCount === 0) {
+                console.warn(`⚠️ Got 404 from ${SERVERS[currentServer].name} at ${API_BASE_URL}/comments`);
+                console.warn(`Response body:`, response.body);
+                
+                // Mark cloud as failed if that's what we're using
+                if (currentServer === 'cloud') {
+                    sessionStorage.setItem('cloud_server_failed', 'true');
+                }
+                
+                const alternativeServer = currentServer === 'local' ? 'cloud' : 'local';
+                console.log(`🔄 Trying alternative server: ${SERVERS[alternativeServer].name}...`);
+                
+                // Try alternative server directly without health check (faster)
+                const altApiUrl = SERVERS[alternativeServer].api;
+                console.log(`Testing ${altApiUrl}/comments endpoint directly...`);
+                
+                try {
+                    // Quick test fetch to see if endpoint exists
+                    const testResponse = await apiFetch(`${altApiUrl}/comments?url=${encodeURIComponent(currentUrl)}`);
+                    if (testResponse && !testResponse.error && testResponse.ok) {
+                        console.log(`✅ Alternative server works! Switching to ${SERVERS[alternativeServer].name}...`);
+                        currentServer = alternativeServer;
+                        API_BASE_URL = SERVERS[alternativeServer].api;
+                        SERVER_BASE_URL = SERVERS[alternativeServer].base;
+                        await chrome.storage.local.set({ activeServer: alternativeServer });
+                        updateServerStatusIndicator();
+                        // Clear failure flag if alternative works
+                        if (alternativeServer === 'local') {
+                            sessionStorage.removeItem('cloud_server_failed');
+                        }
+                        return await loadComments(sortBy, retryCount + 1);
+                    } else if (testResponse && testResponse.status === 404) {
+                        console.warn(`⚠️ Alternative server also returns 404`);
+                    }
+                } catch (testError) {
+                    console.warn(`Alternative server test failed:`, testError.message);
+                }
+                
+                // If direct test failed, try health check and retry anyway
+                console.log(`Checking health of ${SERVERS[alternativeServer].name}...`);
+                const altHealthy = await checkServerHealth(alternativeServer);
+                if (altHealthy) {
+                    console.log(`✅ ${SERVERS[alternativeServer].name} is healthy, switching and retrying...`);
+                    currentServer = alternativeServer;
+                    API_BASE_URL = SERVERS[alternativeServer].api;
+                    SERVER_BASE_URL = SERVERS[alternativeServer].base;
+                    await chrome.storage.local.set({ activeServer: alternativeServer });
+                    updateServerStatusIndicator();
+                    if (alternativeServer === 'local') {
+                        sessionStorage.removeItem('cloud_server_failed');
+                    }
+                    return await loadComments(sortBy, retryCount + 1);
+                } else {
+                    console.warn(`⚠️ Alternative server health check also failed`);
+                }
+            }
+            
             // Retry on server errors (5xx) or temporary issues
             if (retryCount < 2 && (response.status >= 500 || response.status === 429)) {
                 console.log(`Retrying due to server error ${response.status} in ${(retryCount + 1) * 3} seconds...`);
@@ -1714,7 +2233,36 @@ async function loadComments(sortBy = currentSortBy, retryCount = 0) {
                 return;
             }
             
-            throw new Error(`Failed to load comments: ${response.body || response.statusText || 'Request failed'}`);
+            // For 404, provide a more helpful error message with troubleshooting info
+            if (response.status === 404) {
+                const errorDetails = response.body ? ` (${response.body.substring(0, 100)})` : '';
+                const serverUrl = API_BASE_URL.replace('/api', '');
+                throw new Error(
+                    `API endpoint not found on ${SERVERS[currentServer].name}. ` +
+                    `The /api/comments endpoint may not be deployed. ` +
+                    `Please verify the server at ${serverUrl} is running the latest code. ` +
+                    `If you're using Render.com, check the deployment logs.` +
+                    errorDetails
+                );
+            }
+            
+            // Parse error response if available
+            let errorMessage = 'Request failed';
+            try {
+                const errorBody = JSON.parse(response.body || '{}');
+                if (errorBody.error) {
+                    errorMessage = errorBody.error;
+                    if (errorBody.details) {
+                        errorMessage += `: ${errorBody.details}`;
+                    }
+                } else {
+                    errorMessage = response.body || response.statusText || 'Request failed';
+                }
+            } catch (e) {
+                errorMessage = response.body || response.statusText || 'Request failed';
+            }
+            
+            throw new Error(`Failed to load comments: ${errorMessage}`);
         }
         
         let comments = [];
@@ -2016,6 +2564,26 @@ async function loadComments(sortBy = currentSortBy, retryCount = 0) {
                               errorMessage.toLowerCase().includes('timeout') ||
                               errorMessage.toLowerCase().includes('connection');
         
+        // Create retry function that finds working server first
+        const retryButtonId = 'retry-comments-btn-' + Date.now();
+        window[retryButtonId] = async function() {
+            const btn = document.getElementById(retryButtonId);
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '🔄 Retrying...';
+            }
+            try {
+                await findWorkingServer();
+                await loadComments(currentSortBy);
+            } catch (e) {
+                console.error('Retry failed:', e);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = '🔄 Try Again';
+                }
+            }
+        };
+        
         commentsList.innerHTML = `
             <div class="error-message" style="text-align: center; padding: 20px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; margin: 10px;">
                 <div style="color: #dc3545; font-size: 18px; margin-bottom: 10px;">
@@ -2027,7 +2595,7 @@ async function loadComments(sortBy = currentSortBy, retryCount = 0) {
                         'An error occurred while loading comments.'}
                 </div>
                 <div style="margin-bottom: 15px;">
-                    <button onclick="loadComments('${currentSortBy}')" 
+                    <button id="${retryButtonId}" onclick="window['${retryButtonId}']()" 
                             style="background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-right: 10px;">
                         🔄 Try Again
                     </button>
@@ -2087,6 +2655,9 @@ async function submitComment() {
         console.log('Comment submitted successfully:', newComment);
         
         commentInput.value = '';
+        // Reset textarea height to default size
+        commentInput.style.height = '44px';
+        commentInput.style.overflowY = 'hidden';
         await loadComments(currentSortBy);
         // Re-initialize emoji pickers after submitting comment
         initializeEmojiPicker();
@@ -3228,12 +3799,27 @@ function initializeEmojiPicker() {
         console.log('All elements found, setting up event listener');
         let currentCategory = 'smileys';
         
+        // Remove any existing event listeners by cloning the button
+        const newEmojiBtn = emojiBtn.cloneNode(true);
+        emojiBtn.parentNode.replaceChild(newEmojiBtn, emojiBtn);
+        const freshEmojiBtn = document.getElementById('comment-emoji-btn');
+        
+        if (!freshEmojiBtn) {
+            console.error('Failed to get fresh emoji button after cloning');
+            return;
+        }
+        
+        console.log('Fresh emoji button found:', freshEmojiBtn);
+        console.log('Button position:', freshEmojiBtn.getBoundingClientRect());
+        
         // Initialize the main emoji picker
-        emojiBtn.addEventListener('click', (e) => {
+        freshEmojiBtn.addEventListener('click', (e) => {
             console.log('Main emoji button clicked!');
             console.log('Event target:', e.target);
-            console.log('Button element:', emojiBtn);
+            console.log('Button element:', freshEmojiBtn);
+            e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation();
             const isVisible = emojiPicker.style.display === 'block';
             console.log('Current emoji picker display:', emojiPicker.style.display);
             console.log('Is visible:', isVisible);
@@ -3244,7 +3830,7 @@ function initializeEmojiPicker() {
                 emojiPicker.style.display = 'none';
             } else {
                 // Position the emoji picker relative to the button
-                const buttonRect = emojiBtn.getBoundingClientRect();
+                const buttonRect = freshEmojiBtn.getBoundingClientRect();
                 const viewportWidth = window.innerWidth;
                 const pickerWidth = 280;
                 
@@ -3305,7 +3891,7 @@ function initializeEmojiPicker() {
         
         // Close main emoji picker when clicking outside
         document.addEventListener('click', (e) => {
-            if (!emojiPicker.contains(e.target) && !emojiBtn.contains(e.target)) {
+            if (!emojiPicker.contains(e.target) && !freshEmojiBtn.contains(e.target)) {
                 emojiPicker.style.display = 'none';
             }
         });
@@ -3336,7 +3922,7 @@ function initializeEmojiPicker() {
         document.addEventListener('click', function closeEmojiPicker(e) {
             const target = e.target;
             // Use the emoji button element we created earlier instead of undefined 'btn'
-            if (!emojiPicker.contains(target) && !emojiBtn.contains(target)) {
+            if (!emojiPicker.contains(target) && !freshEmojiBtn.contains(target)) {
                 emojiPicker.style.display = 'none';
                 document.removeEventListener('click', closeEmojiPicker);
             }
@@ -3716,53 +4302,133 @@ const MOCK_GIFS = {
     ]
 };
 
-async function searchGifs(query, limit = 20) {
+async function searchGifs(query, limit = 50, offset = 0) {
     try {
         // Try the real API first
-        const response = await fetch(`${GIPHY_BASE_URL}/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(query)}&limit=${limit}&rating=g`);
+        const response = await fetch(`${GIPHY_BASE_URL}/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}&rating=g`);
         
         if (!response.ok) {
-            console.log('Giphy API unavailable, using mock data');
+            console.log('Giphy API unavailable, using mock data. Status:', response.status);
             // Fallback to mock data
             const mockData = MOCK_GIFS[query.toLowerCase()] || MOCK_GIFS['default'];
-            return mockData.slice(0, limit);
+            return mockData.slice(offset, offset + limit);
         }
         
         const data = await response.json();
+        console.log('Giphy search API response:', {
+            query: query,
+            total: data.pagination?.total_count || 'unknown',
+            count: data.data?.length || 0,
+            limit: limit,
+            offset: offset
+        });
+        
+        if (!data.data || data.data.length === 0) {
+            console.warn('Giphy search API returned empty data, using mock data');
+            const mockData = MOCK_GIFS[query.toLowerCase()] || MOCK_GIFS['default'];
+            return mockData.slice(offset, offset + limit);
+        }
+        
         return data.data || [];
     } catch (error) {
-        console.log('Giphy API error, using mock data:', error);
+        console.error('Giphy API error, using mock data:', error);
         // Fallback to mock data
         const mockData = MOCK_GIFS[query.toLowerCase()] || MOCK_GIFS['default'];
-        return mockData.slice(0, limit);
+        return mockData.slice(offset, offset + limit);
     }
 }
 
-async function getTrendingGifs(limit = 20) {
+async function getTrendingGifs(limit = 50, offset = 0) {
     try {
         // Try the real API first
-        const response = await fetch(`${GIPHY_BASE_URL}/trending?api_key=${GIPHY_API_KEY}&limit=${limit}&rating=g`);
+        const response = await fetch(`${GIPHY_BASE_URL}/trending?api_key=${GIPHY_API_KEY}&limit=${limit}&offset=${offset}&rating=g`);
         
         if (!response.ok) {
-            console.log('Giphy API unavailable, using mock data');
+            console.log('Giphy API unavailable, using mock data. Status:', response.status);
             // Fallback to mock data
-            return MOCK_GIFS['default'].slice(0, limit);
+            return MOCK_GIFS['default'].slice(offset, offset + limit);
         }
         
         const data = await response.json();
+        console.log('Giphy API response:', {
+            total: data.pagination?.total_count || 'unknown',
+            count: data.data?.length || 0,
+            limit: limit,
+            offset: offset
+        });
+        
+        if (!data.data || data.data.length === 0) {
+            console.warn('Giphy API returned empty data, using mock data');
+            return MOCK_GIFS['default'].slice(offset, offset + limit);
+        }
+        
         return data.data || [];
     } catch (error) {
-        console.log('Giphy API error, using mock data:', error);
+        console.error('Giphy API error, using mock data:', error);
         // Fallback to mock data
-        return MOCK_GIFS['default'].slice(0, limit);
+        return MOCK_GIFS['default'].slice(offset, offset + limit);
     }
+}
+
+// Get popular categories/trending searches
+async function getPopularCategories() {
+    const categories = ['funny', 'reaction', 'meme', 'animals', 'celebrities', 'sports', 'tv', 'movies', 'music', 'food', 'happy', 'love', 'excited', 'yes', 'no', 'congratulations', 'thank you', 'hello', 'goodbye', 'dance'];
+    return categories;
 }
 
 function renderGifGrid(gifs, gridElem, onGifClick) {
+    console.log('renderGifGrid called with', gifs?.length || 0, 'GIFs');
     gridElem.innerHTML = '';
     
     if (!gifs || gifs.length === 0) {
         gridElem.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">No GIFs found. Try a different search term.</div>';
+        return;
+    }
+    
+    console.log('Rendering GIFs:', gifs.map(g => ({ title: g.title, hasImages: !!g.images })));
+    
+    gifs.forEach((gif, index) => {
+        try {
+            // Handle different possible image object structures
+            const imageUrl = gif.images?.fixed_height_small?.url || 
+                           gif.images?.fixed_height?.url || 
+                           gif.images?.downsized?.url ||
+                           gif.images?.original?.url ||
+                           gif.url;
+            
+            const originalUrl = gif.images?.original?.url || 
+                               gif.images?.fixed_height?.url ||
+                               imageUrl;
+            
+            const title = gif.title || gif.slug || `GIF ${index + 1}`;
+            
+            if (!imageUrl) {
+                console.warn('GIF missing image URL:', gif);
+                return;
+            }
+            
+            const gifItem = document.createElement('div');
+            gifItem.className = 'gif-item';
+            gifItem.innerHTML = `
+                <img src="${imageUrl}" 
+                     alt="${title}" 
+                     data-gif-url="${originalUrl}"
+                     data-gif-title="${title}"
+                     loading="lazy"
+                     onerror="this.parentElement.innerHTML='<div style=\\'padding:20px;text-align:center;color:#999;\\'>Failed to load</div>'">
+            `;
+            gifItem.addEventListener('click', () => onGifClick(originalUrl, title));
+            gridElem.appendChild(gifItem);
+        } catch (error) {
+            console.error('Error rendering GIF:', error, gif);
+        }
+    });
+    
+    console.log('Rendered', gridElem.children.length, 'GIF items');
+}
+
+function appendGifGrid(gifs, gridElem, onGifClick) {
+    if (!gifs || gifs.length === 0) {
         return;
     }
     
@@ -3780,7 +4446,7 @@ function renderGifGrid(gifs, gridElem, onGifClick) {
     });
 }
 
-function initializeGifPicker() {
+async function initializeGifPicker() {
     // Main comment input
     const gifBtn = document.getElementById('comment-gif-btn');
     const gifPicker = document.getElementById('comment-gif-picker');
@@ -3793,61 +4459,258 @@ function initializeGifPicker() {
     console.log('GIF picker elements:', { gifBtn, gifPicker, gifGrid, gifSearch, gifSearchBtn, gifLoading, textarea });
     
     if (gifBtn && gifPicker && gifGrid && textarea) {
-        // Load trending GIFs on first open
-        let isFirstOpen = true;
+        console.log('All GIF picker elements found, setting up event listener');
         
-        gifBtn.addEventListener('click', async (e) => {
-            console.log('GIF button clicked!');
-            e.stopPropagation();
-            gifPicker.style.display = gifPicker.style.display === 'block' ? 'none' : 'block';
-            
-            if (isFirstOpen) {
-                gifLoading.style.display = 'block';
-                const trendingGifs = await getTrendingGifs();
-                renderGifGrid(trendingGifs, gifGrid, (gifUrl, gifTitle) => {
-                    insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
-                    gifPicker.style.display = 'none';
-                    textarea.focus();
-                });
-                gifLoading.style.display = 'none';
-                isFirstOpen = false;
-            }
-        });
+        // Remove any existing event listeners by cloning the button
+        const newGifBtn = gifBtn.cloneNode(true);
+        gifBtn.parentNode.replaceChild(newGifBtn, gifBtn);
+        const freshGifBtn = document.getElementById('comment-gif-btn');
         
-        // Search functionality
-        gifSearchBtn.addEventListener('click', async () => {
-            const query = gifSearch.value.trim();
-            if (query) {
+        if (!freshGifBtn) {
+            console.error('Failed to get fresh GIF button after cloning');
+            return;
+        }
+        
+        console.log('Fresh GIF button found:', freshGifBtn);
+        console.log('Button position:', freshGifBtn.getBoundingClientRect());
+        
+        // State for pagination
+        let currentOffset = 0;
+        let currentQuery = null;
+        let isLoadingMore = false;
+        
+        // Load popular categories
+        const gifCategories = document.getElementById('comment-gif-categories');
+        const gifCategoryTags = document.getElementById('comment-gif-category-tags');
+        const popularCategories = await getPopularCategories();
+        
+        popularCategories.forEach(category => {
+            const tag = document.createElement('button');
+            tag.className = 'gif-category-tag';
+            tag.textContent = category;
+            tag.addEventListener('click', async () => {
+                gifSearch.value = category;
+                currentQuery = category;
+                currentOffset = 0;
                 gifLoading.style.display = 'block';
-                const gifs = await searchGifs(query);
+                gifGrid.innerHTML = '';
+                const gifs = await searchGifs(category, 50, 0);
                 renderGifGrid(gifs, gifGrid, (gifUrl, gifTitle) => {
                     insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
                     gifPicker.style.display = 'none';
                     textarea.focus();
                 });
                 gifLoading.style.display = 'none';
+                currentOffset = gifs.length;
+                const loadMoreBtn = document.getElementById('comment-gif-load-more');
+                if (gifs.length >= 50) {
+                    loadMoreBtn.style.display = 'block';
+                } else {
+                    loadMoreBtn.style.display = 'none';
+                }
+            });
+            gifCategoryTags.appendChild(tag);
+        });
+        
+        freshGifBtn.addEventListener('click', async (e) => {
+            console.log('GIF button clicked!');
+            console.log('Event target:', e.target);
+            console.log('Button element:', freshGifBtn);
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            
+            const isVisible = gifPicker.style.display === 'block';
+            console.log('Current GIF picker display:', gifPicker.style.display);
+            console.log('Is visible:', isVisible);
+            
+            if (isVisible) {
+                gifPicker.style.display = 'none';
+            } else {
+                // Position the GIF picker relative to the button
+                const buttonRect = freshGifBtn.getBoundingClientRect();
+                const viewportWidth = window.innerWidth;
+                const viewportHeight = window.innerHeight;
+                const pickerWidth = 300;
+                const pickerHeight = 450;
+                
+                // Calculate left position to keep picker within viewport
+                let leftPos = buttonRect.left;
+                if (leftPos + pickerWidth > viewportWidth - 10) {
+                    leftPos = viewportWidth - pickerWidth - 10;
+                }
+                if (leftPos < 10) {
+                    leftPos = 10;
+                }
+                
+                // Calculate top position
+                let topPos = buttonRect.bottom + 5;
+                
+                // If picker would go below viewport, position it above the button
+                if (topPos + pickerHeight > viewportHeight - 10) {
+                    topPos = buttonRect.top - pickerHeight - 5;
+                }
+                
+                // Ensure minimum top position
+                if (topPos < 10) {
+                    topPos = 10;
+                }
+                
+                gifPicker.style.left = `${leftPos}px`;
+                gifPicker.style.top = `${topPos}px`;
+                gifPicker.style.position = 'fixed';
+                gifPicker.style.display = 'block';
+                
+                console.log('GIF picker position:', {
+                    left: `${leftPos}px`,
+                    top: `${topPos}px`,
+                    viewportWidth,
+                    pickerWidth,
+                    buttonLeft: buttonRect.left,
+                    buttonBottom: buttonRect.bottom
+                });
+                
+                // Show categories
+                gifCategories.style.display = 'block';
+                
+                // Load trending GIFs if grid is empty
+                if (gifGrid.children.length === 0) {
+                    gifLoading.style.display = 'block';
+                    currentQuery = null;
+                    currentOffset = 0;
+                    console.log('Loading trending GIFs...');
+                    const trendingGifs = await getTrendingGifs(50, 0);
+                    console.log('Received', trendingGifs.length, 'trending GIFs');
+                    renderGifGrid(trendingGifs, gifGrid, (gifUrl, gifTitle) => {
+                        insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
+                        gifPicker.style.display = 'none';
+                        textarea.focus();
+                    });
+                    gifLoading.style.display = 'none';
+                    currentOffset = trendingGifs.length;
+                    const loadMoreBtn = document.getElementById('comment-gif-load-more');
+                    if (trendingGifs.length >= 50) {
+                        loadMoreBtn.style.display = 'block';
+                    } else {
+                        loadMoreBtn.style.display = 'none';
+                    }
+                }
             }
         });
         
-        // Search on Enter key
-        gifSearch.addEventListener('keypress', async (e) => {
-            if (e.key === 'Enter') {
+        // Load more button
+        const loadMoreBtn = document.getElementById('comment-gif-load-more-btn');
+        loadMoreBtn.addEventListener('click', async () => {
+            if (isLoadingMore) return;
+            isLoadingMore = true;
+            loadMoreBtn.textContent = 'Loading...';
+            loadMoreBtn.disabled = true;
+            
+            try {
+                let moreGifs;
+                if (currentQuery) {
+                    moreGifs = await searchGifs(currentQuery, 50, currentOffset);
+                } else {
+                    moreGifs = await getTrendingGifs(50, currentOffset);
+                }
+                
+                if (moreGifs.length > 0) {
+                    appendGifGrid(moreGifs, gifGrid, (gifUrl, gifTitle) => {
+                        insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
+                        gifPicker.style.display = 'none';
+                        textarea.focus();
+                    });
+                    currentOffset += moreGifs.length;
+                    
+                    if (moreGifs.length < 50) {
+                        loadMoreBtn.style.display = 'none';
+                    }
+                } else {
+                    loadMoreBtn.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error loading more GIFs:', error);
+            } finally {
+                isLoadingMore = false;
+                loadMoreBtn.textContent = 'Load More GIFs';
+                loadMoreBtn.disabled = false;
+            }
+        });
+        
+        // Search functionality
+        if (gifSearchBtn) {
+            gifSearchBtn.addEventListener('click', async () => {
                 const query = gifSearch.value.trim();
                 if (query) {
                     gifLoading.style.display = 'block';
-                    const gifs = await searchGifs(query);
+                    gifGrid.innerHTML = '';
+                    currentQuery = query;
+                    currentOffset = 0;
+                    const gifs = await searchGifs(query, 50, 0);
                     renderGifGrid(gifs, gifGrid, (gifUrl, gifTitle) => {
                         insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
                         gifPicker.style.display = 'none';
                         textarea.focus();
                     });
                     gifLoading.style.display = 'none';
+                    currentOffset = gifs.length;
+                    const loadMoreBtn = document.getElementById('comment-gif-load-more');
+                    if (gifs.length >= 50) {
+                        loadMoreBtn.style.display = 'block';
+                    } else {
+                        loadMoreBtn.style.display = 'none';
+                    }
                 }
-            }
-        });
+            });
+        }
+        
+        // Search on Enter key
+        if (gifSearch) {
+            gifSearch.addEventListener('keypress', async (e) => {
+                if (e.key === 'Enter') {
+                    const query = gifSearch.value.trim();
+                    if (query) {
+                        gifLoading.style.display = 'block';
+                        gifGrid.innerHTML = '';
+                        currentQuery = query;
+                        currentOffset = 0;
+                        const gifs = await searchGifs(query, 50, 0);
+                        renderGifGrid(gifs, gifGrid, (gifUrl, gifTitle) => {
+                            insertAtCursor(textarea, `![${gifTitle}](${gifUrl})`);
+                            gifPicker.style.display = 'none';
+                            textarea.focus();
+                        });
+                        gifLoading.style.display = 'none';
+                        currentOffset = gifs.length;
+                        const loadMoreBtn = document.getElementById('comment-gif-load-more');
+                        if (gifs.length >= 50) {
+                            loadMoreBtn.style.display = 'block';
+                        } else {
+                            loadMoreBtn.style.display = 'none';
+                        }
+                    }
+                }
+            });
+        }
         
         gifPicker.addEventListener('click', e => e.stopPropagation());
-        document.addEventListener('click', () => gifPicker.style.display = 'none');
+        
+        // Close main GIF picker when clicking outside (but not when clicking inside comments panel)
+        const commentsPanel = document.getElementById('webpage-comments-panel');
+        document.addEventListener('click', (e) => {
+            // Don't close if clicking inside the GIF picker or GIF button
+            if (gifPicker.contains(e.target) || freshGifBtn.contains(e.target)) {
+                return;
+            }
+            // Don't close if clicking inside the comments panel
+            if (commentsPanel && commentsPanel.contains(e.target)) {
+                return;
+            }
+            // Close only if clicking outside both the picker and the comments panel
+            if (gifPicker.style.display === 'block') {
+                gifPicker.style.display = 'none';
+            }
+        });
     }
 
     // Delegate for reply and edit GIF pickers
@@ -4020,10 +4883,60 @@ function initializeGifPicker() {
 }
 // === END GIF Picker Support ===
 
+// === Comment Input Vertical Auto-Resize ===
+function initializeCommentInputVerticalResize() {
+    const textarea = document.getElementById('comment-input');
+    if (!textarea) {
+        console.log('Comment input not found for vertical resize initialization');
+        return;
+    }
+    
+    function autoResize() {
+        // Reset height to auto to get the correct scrollHeight
+        textarea.style.height = 'auto';
+        
+        // Calculate the new height based on scrollHeight
+        const scrollHeight = textarea.scrollHeight;
+        const minHeight = 44; // min-height from CSS
+        const maxHeight = 200; // max-height from CSS
+        
+        // Set the height, clamped between min and max
+        const newHeight = Math.max(minHeight, Math.min(scrollHeight, maxHeight));
+        textarea.style.height = newHeight + 'px';
+        
+        // If content exceeds max height, show scrollbar
+        if (scrollHeight > maxHeight) {
+            textarea.style.overflowY = 'auto';
+        } else {
+            textarea.style.overflowY = 'hidden';
+        }
+    }
+    
+    // Resize on input
+    textarea.addEventListener('input', autoResize);
+    
+    // Resize on paste
+    textarea.addEventListener('paste', () => {
+        setTimeout(autoResize, 10);
+    });
+    
+    // Initial resize
+    setTimeout(autoResize, 100);
+}
+// === END Comment Input Vertical Auto-Resize ===
+
 // Initialize the panel
 console.log('=== EXTENSION LOADED ===');
 console.log('Content script version:', Date.now());
-createCommentsPanel();
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        if (!document.getElementById('webpage-comments-panel')) {
+            createCommentsPanel();
+        }
+    }, { once: true });
+} else {
+    createCommentsPanel();
+}
 
 // Listen for messages from popup to reopen panel
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -4041,7 +4954,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }
         } else {
             console.log('Panel does not exist, creating new one');
-            createCommentsPanel();
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => {
+                    if (!document.getElementById('webpage-comments-panel')) {
+                        createCommentsPanel();
+                    }
+                }, { once: true });
+            } else {
+                createCommentsPanel();
+            }
         }
         
         sendResponse({ success: true });

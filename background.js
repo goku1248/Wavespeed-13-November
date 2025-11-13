@@ -13,6 +13,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             try {
                 const url = request.url;
                 const options = request.options || {};
+                
+                // Add timeout to prevent hanging requests (30 seconds)
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000);
+                
                 // Ensure headers exist and are plain object
                 const headers = new Headers(options.headers || {});
                 // Default JSON handling if body is object
@@ -21,25 +26,59 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     options.body = JSON.stringify(options.body);
                 }
                 options.headers = headers;
+                
+                // Add abort signal to options
+                options.signal = controller.signal;
 
-                const res = await fetch(url, options);
-                const bodyText = await res.text();
-                const resHeaders = {};
                 try {
-                    for (const [k, v] of res.headers.entries()) {
-                        resHeaders[k] = v;
+                    const res = await fetch(url, options);
+                    clearTimeout(timeoutId);
+                    
+                    const bodyText = await res.text();
+                    const resHeaders = {};
+                    try {
+                        for (const [k, v] of res.headers.entries()) {
+                            resHeaders[k] = v;
+                        }
+                    } catch (e) {}
+                    sendResponse({
+                        ok: res.ok,
+                        status: res.status,
+                        statusText: res.statusText,
+                        headers: resHeaders,
+                        body: bodyText
+                    });
+                } catch (fetchError) {
+                    clearTimeout(timeoutId);
+                    
+                    // Provide better error messages for common network issues
+                    let errorMessage = fetchError.message || String(fetchError);
+                    
+                    if (fetchError.name === 'AbortError') {
+                        errorMessage = 'Request timeout - server may be unavailable or unreachable';
+                    } else if (fetchError.message === 'Failed to fetch' || fetchError.message.includes('fetch')) {
+                        // Check if it's a network issue
+                        if (url.includes('localhost')) {
+                            errorMessage = 'Failed to connect to local server. Make sure the server is running on localhost:3001';
+                        } else {
+                            errorMessage = 'Failed to connect to server. Please check your internet connection or try again later';
+                        }
+                    } else if (fetchError.message.includes('CORS')) {
+                        errorMessage = 'CORS error - server may not be configured correctly';
+                    } else if (fetchError.message.includes('network')) {
+                        errorMessage = 'Network error - please check your internet connection';
                     }
-                } catch (e) {}
-                sendResponse({
-                    ok: res.ok,
-                    status: res.status,
-                    statusText: res.statusText,
-                    headers: resHeaders,
-                    body: bodyText
-                });
+                    
+                    console.error('apiFetch error:', {
+                        url,
+                        error: fetchError,
+                        message: errorMessage
+                    });
+                    sendResponse({ error: errorMessage });
+                }
             } catch (error) {
-                console.error('apiFetch error:', error);
-                sendResponse({ error: error.message || String(error) });
+                console.error('apiFetch unexpected error:', error);
+                sendResponse({ error: error.message || String(error) || 'Unknown error occurred' });
             }
         })();
         return true; // keep channel open for async response

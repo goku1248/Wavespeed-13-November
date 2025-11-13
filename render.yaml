@@ -6,6 +6,6 @@ services:
     startCommand: npm start
     envVars:
       - key: MONGODB_URI
-        sync: false
+        sync: false # set in Render dashboard, do not commit secrets
       - key: PORT
         value: 10000 
