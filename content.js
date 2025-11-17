@@ -970,60 +970,8 @@ async function createCommentsPanel() {
         });
     }
 
-    // Content search input and filters
-    const contentSearchInput = document.getElementById('content-search-input');
-    const searchTypeRadios = document.querySelectorAll('input[name="search-type"]');
-    const searchRefreshBtn = document.getElementById('search-refresh-btn');
-    
-    if (contentSearchInput) {
-        contentSearchInput.addEventListener('input', (e) => {
-            const query = e.target.value;
-            
-            // Clear previous timeout
-            if (contentSearchTimeout) {
-                clearTimeout(contentSearchTimeout);
-            }
-            
-            // Get selected filter type
-            const selectedType = document.querySelector('input[name="search-type"]:checked')?.value || 'all';
-            
-            // Debounce search - wait 300ms after user stops typing
-            contentSearchTimeout = setTimeout(() => {
-                searchContent(query, selectedType);
-            }, 300);
-        });
-        
-        // Also handle Enter key for immediate search
-        contentSearchInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                if (contentSearchTimeout) {
-                    clearTimeout(contentSearchTimeout);
-                }
-                const selectedType = document.querySelector('input[name="search-type"]:checked')?.value || 'all';
-                searchContent(e.target.value, selectedType);
-            }
-        });
-    }
-    
-    // Search type filter change
-    searchTypeRadios.forEach(radio => {
-        radio.addEventListener('change', (e) => {
-            const query = contentSearchInput?.value || '';
-            if (query.trim()) {
-                searchContent(query, e.target.value);
-            }
-        });
-    });
-    
-    // Clear search button
-    if (searchRefreshBtn) {
-        searchRefreshBtn.addEventListener('click', () => {
-            if (contentSearchInput) {
-                contentSearchInput.value = '';
-            }
-            clearSearchResults();
-        });
-    }
+    // Search handlers will be initialized when search section is activated
+    // and also after a delay to catch elements that might be created later
 
     // Delegated event listener for follow/unfollow buttons
     document.addEventListener('click', async (e) => {
@@ -1719,6 +1667,76 @@ async function createCommentsPanel() {
         }, 6000);
     }
 
+    // Content search handlers initialization function (defined before setActiveSection)
+    function initializeSearchHandlers() {
+        const contentSearchInput = document.getElementById('content-search-input');
+        const searchTypeRadios = document.querySelectorAll('input[name="search-type"]');
+        const searchRefreshBtn = document.getElementById('search-refresh-btn');
+        
+        if (contentSearchInput && !contentSearchInput.dataset.initialized) {
+            console.log('Initializing search input handlers');
+            contentSearchInput.dataset.initialized = 'true';
+            
+            contentSearchInput.addEventListener('input', (e) => {
+                const query = e.target.value;
+                console.log('Search input changed:', query);
+                
+                // Clear previous timeout
+                if (contentSearchTimeout) {
+                    clearTimeout(contentSearchTimeout);
+                }
+                
+                // Get selected filter type
+                const selectedType = document.querySelector('input[name="search-type"]:checked')?.value || 'all';
+                
+                // Debounce search - wait 300ms after user stops typing
+                contentSearchTimeout = setTimeout(() => {
+                    console.log('Executing search:', query, selectedType);
+                    searchContent(query, selectedType);
+                }, 300);
+            });
+            
+            // Also handle Enter key for immediate search
+            contentSearchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (contentSearchTimeout) {
+                        clearTimeout(contentSearchTimeout);
+                    }
+                    const selectedType = document.querySelector('input[name="search-type"]:checked')?.value || 'all';
+                    console.log('Enter pressed, executing search:', e.target.value, selectedType);
+                    searchContent(e.target.value, selectedType);
+                }
+            });
+        }
+        
+        // Search type filter change
+        searchTypeRadios.forEach(radio => {
+            if (!radio.dataset.initialized) {
+                radio.dataset.initialized = 'true';
+                radio.addEventListener('change', (e) => {
+                    const query = contentSearchInput?.value || '';
+                    console.log('Filter changed:', e.target.value, 'Query:', query);
+                    if (query.trim()) {
+                        searchContent(query, e.target.value);
+                    }
+                });
+            }
+        });
+        
+        // Clear search button
+        if (searchRefreshBtn && !searchRefreshBtn.dataset.initialized) {
+            searchRefreshBtn.dataset.initialized = 'true';
+            searchRefreshBtn.addEventListener('click', () => {
+                console.log('Clear search clicked');
+                if (contentSearchInput) {
+                    contentSearchInput.value = '';
+                }
+                clearSearchResults();
+            });
+        }
+    }
+
     async function setActiveSection(sectionKey) {
         messagesUIState.activeSection = sectionKey;
         // Update tab active state
@@ -1782,6 +1800,10 @@ async function createCommentsPanel() {
                         searchInput.value = '';
                     }
                     clearSearchResults();
+                    // Ensure search handlers are initialized when search section is activated
+                    setTimeout(() => {
+                        initializeSearchHandlers();
+                    }, 100);
                 }
             }
         }
@@ -1855,6 +1877,11 @@ async function createCommentsPanel() {
     
     // Initialize vertical auto-resize for comment input
     initializeCommentInputVerticalResize();
+    
+    // Initialize search handlers after panel is fully created
+    setTimeout(() => {
+        initializeSearchHandlers();
+    }, 500);
     
     // Start periodic health check monitoring (every 60 seconds)
     setInterval(async () => {
@@ -3877,6 +3904,8 @@ async function checkFollowStatus(targetEmail) {
 
 // Content search functions
 async function searchContent(query, type = 'all') {
+    console.log('searchContent called with:', { query, type, API_BASE_URL });
+    
     if (!query || !query.trim()) {
         clearSearchResults();
         return;
@@ -3912,7 +3941,11 @@ async function searchContent(query, type = 'all') {
             params.append('userEmail', currentUser.email);
         }
         
-        const response = await apiFetch(`${API_BASE_URL}/search?${params.toString()}`);
+        const searchUrl = `${API_BASE_URL}/search?${params.toString()}`;
+        console.log('Searching with URL:', searchUrl);
+        
+        const response = await apiFetch(searchUrl);
+        console.log('Search response:', response);
         
         if (!response || response.error) {
             throw new Error(response?.error || 'Unable to search content');
@@ -3921,18 +3954,22 @@ async function searchContent(query, type = 'all') {
         if (!response.ok) {
             let body = {};
             try { body = JSON.parse(response.body || '{}'); } catch (_) {}
-            throw new Error(body?.error || `Server returned ${response.status}`);
+            const errorMsg = body?.error || `Server returned ${response.status}`;
+            console.error('Search failed:', errorMsg);
+            throw new Error(errorMsg);
         }
         
         let data = {};
         try {
             data = JSON.parse(response.body || '{}');
+            console.log('Parsed search data:', data);
         } catch (parseError) {
-            console.error('Error parsing search response:', parseError);
+            console.error('Error parsing search response:', parseError, response.body);
             throw new Error('Invalid response from server');
         }
         
         const results = data.results || [];
+        console.log('Search results:', results.length, 'items');
         searchState.results = results;
         searchState.error = null;
         

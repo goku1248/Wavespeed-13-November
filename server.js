@@ -1007,11 +1007,11 @@ app.get('/api/users/search', async (req, res) => {
         if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
         const { q, limit = 10 } = req.query;
         if (!q || String(q).trim().length === 0) return res.json({ results: [], unique: null });
-
+        
         const searchTerm = String(q).trim();
         // Use case-insensitive partial match (not just prefix) for better search results
         const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-
+        
         const results = await User.find({ 
             $or: [
                 { name: regex }, 
@@ -1031,15 +1031,15 @@ app.get('/api/users/search', async (req, res) => {
             const aEmail = (a.email || '').toLowerCase();
             const bEmail = (b.email || '').toLowerCase();
             const searchLower = searchTerm.toLowerCase();
-
+            
             // Exact match gets highest priority
             if (aName === searchLower || aEmail === searchLower) return -1;
             if (bName === searchLower || bEmail === searchLower) return 1;
-
+            
             // Prefix match gets second priority
             if (aName.startsWith(searchLower) || aEmail.startsWith(searchLower)) return -1;
             if (bName.startsWith(searchLower) || bEmail.startsWith(searchLower)) return 1;
-
+            
             // Otherwise maintain alphabetical order
             return aName.localeCompare(bName);
         });
