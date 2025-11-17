@@ -274,6 +274,26 @@ userSchema.pre('save', function(next) {
 
 const User = mongoose.model('User', userSchema);
 
+// Follow Schema (user following relationships)
+const followSchema = new mongoose.Schema({
+    follower: {
+        email: { type: String, required: true, index: true },
+        name: String,
+        picture: String
+    },
+    following: {
+        email: { type: String, required: true, index: true },
+        name: String,
+        picture: String
+    },
+    createdAt: { type: Date, default: Date.now }
+});
+
+// Compound index to ensure unique follower-following pairs
+followSchema.index({ 'follower.email': 1, 'following.email': 1 }, { unique: true });
+
+const Follow = mongoose.model('Follow', followSchema);
+
 // Recursively find a reply by ID in a nested replies array
 function findReplyById(replies, replyId) {
   // Validate input
@@ -486,6 +506,24 @@ app.use('/api', ensureDatabaseMiddleware);
 
 // API Routes
 
+const TRENDING_METRIC_FIELDS = {
+    likes: 'likes',
+    dislikes: 'dislikes',
+    trusts: 'trusts',
+    distrusts: 'distrusts',
+    flags: 'flags'
+};
+
+const TRENDING_TIME_RANGE_WINDOWS = {
+    'all': null,
+    '24h': 24 * 60 * 60 * 1000,
+    '3d': 3 * 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+    '30d': 30 * 24 * 60 * 60 * 1000,
+    '90d': 90 * 24 * 60 * 60 * 1000,
+    '1y': 365 * 24 * 60 * 60 * 1000
+};
+
 // Get comments for a URL
 app.get('/api/comments', async (req, res) => {
     try {
@@ -583,6 +621,89 @@ app.get('/api/comments', async (req, res) => {
             stack: error.stack
         });
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Get top liked comments across all URLs (trending)
+app.get('/api/comments/trending', async (req, res) => {
+    try {
+        // Ensure database connection before proceeding
+        try {
+            await ensureDatabaseConnection();
+        } catch (connectionError) {
+            return res.status(500).json({
+                error: 'Database connection error',
+                details: connectionError.message
+            });
+        }
+
+        const limitParam = parseInt(req.query.limit, 10);
+        const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 200) : 100;
+
+        const metricParam = String(req.query.metric || 'likes').toLowerCase();
+        const metricField = TRENDING_METRIC_FIELDS[metricParam] || TRENDING_METRIC_FIELDS.likes;
+        const normalizedMetric = Object.entries(TRENDING_METRIC_FIELDS).find(([, field]) => field === metricField)?.[0] || 'likes';
+
+        const timeRangeParam = String(req.query.timeRange || 'all').toLowerCase();
+        const rangeMs = Object.prototype.hasOwnProperty.call(TRENDING_TIME_RANGE_WINDOWS, timeRangeParam)
+            ? TRENDING_TIME_RANGE_WINDOWS[timeRangeParam]
+            : TRENDING_TIME_RANGE_WINDOWS.all;
+        const normalizedTimeRange = Object.prototype.hasOwnProperty.call(TRENDING_TIME_RANGE_WINDOWS, timeRangeParam)
+            ? timeRangeParam
+            : 'all';
+
+        const query = {};
+        if (rangeMs) {
+            const since = new Date(Date.now() - rangeMs);
+            query.timestamp = { $gte: since };
+        }
+
+        console.log(`Fetching top ${limit} comments for trending view (metric=${normalizedMetric}, range=${normalizedTimeRange})`);
+
+        const projection = {
+            text: 1,
+            url: 1,
+            user: 1,
+            timestamp: 1,
+            likes: 1,
+            dislikes: 1,
+            trusts: 1,
+            distrusts: 1,
+            flags: 1,
+            replies: 1
+        };
+
+        const comments = await Comment.find(query, projection)
+            .sort({ [metricField]: -1, timestamp: -1 })
+            .limit(limit)
+            .lean();
+
+        const trending = comments.map((comment) => {
+            const repliesArray = Array.isArray(comment.replies) ? comment.replies : [];
+            const repliesCount = countTotalReplies(repliesArray);
+            return {
+                id: comment._id,
+                text: comment.text || '',
+                url: comment.url || '',
+                user: comment.user || {},
+                timestamp: comment.timestamp || null,
+                likes: comment.likes || 0,
+                dislikes: comment.dislikes || 0,
+                trusts: comment.trusts || 0,
+                distrusts: comment.distrusts || 0,
+                flags: comment.flags || 0,
+                repliesCount,
+                totalReactions: (comment.likes || 0) + (comment.dislikes || 0) + (comment.trusts || 0) + (comment.distrusts || 0)
+            };
+        });
+
+        res.json(trending);
+    } catch (error) {
+        console.error('Error fetching trending comments:', error);
+        res.status(500).json({
+            error: 'Failed to fetch trending comments',
+            details: error.message
+        });
     }
 });
 
@@ -886,11 +1007,11 @@ app.get('/api/users/search', async (req, res) => {
         if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
         const { q, limit = 10 } = req.query;
         if (!q || String(q).trim().length === 0) return res.json({ results: [], unique: null });
-        
+
         const searchTerm = String(q).trim();
         // Use case-insensitive partial match (not just prefix) for better search results
         const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-        
+
         const results = await User.find({ 
             $or: [
                 { name: regex }, 
@@ -910,15 +1031,15 @@ app.get('/api/users/search', async (req, res) => {
             const aEmail = (a.email || '').toLowerCase();
             const bEmail = (b.email || '').toLowerCase();
             const searchLower = searchTerm.toLowerCase();
-            
+
             // Exact match gets highest priority
             if (aName === searchLower || aEmail === searchLower) return -1;
             if (bName === searchLower || bEmail === searchLower) return 1;
-            
+
             // Prefix match gets second priority
             if (aName.startsWith(searchLower) || aEmail.startsWith(searchLower)) return -1;
             if (bName.startsWith(searchLower) || bEmail.startsWith(searchLower)) return 1;
-            
+
             // Otherwise maintain alphabetical order
             return aName.localeCompare(bName);
         });
@@ -926,6 +1047,391 @@ app.get('/api/users/search', async (req, res) => {
         res.json({ results: sortedResults, unique: sortedResults.length === 1 ? sortedResults[0] : null });
     } catch (error) {
         console.error('Error searching users:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Aggregate a user's activity (comments, replies, messages)
+app.get('/api/users/:email/activity', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const email = String(req.params.email || '').trim();
+        if (!email) return res.status(400).json({ error: 'email is required' });
+        const filter = String(req.query.filter || 'all').toLowerCase(); // all | comments | replies | messages
+
+        const includeComments = filter === 'all' || filter === 'comments';
+        const includeReplies = filter === 'all' || filter === 'replies';
+        const includeMessages = filter === 'all' || filter === 'messages';
+
+        const activity = [];
+
+        // Comments by the user
+        if (includeComments) {
+            const comments = await Comment.find({ 'user.email': email }).sort({ timestamp: -1 }).lean();
+            for (const c of comments) {
+                activity.push({
+                    type: 'comment',
+                    text: c.text || '',
+                    url: c.url || '',
+                    timestamp: c.timestamp || c.createdAt || new Date(0),
+                    likes: c.likes || 0,
+                    dislikes: c.dislikes || 0,
+                    trusts: c.trusts || 0,
+                    distrusts: c.distrusts || 0,
+                    flags: c.flags || 0
+                });
+            }
+        }
+
+        // Replies by the user (nested)
+        if (includeReplies) {
+            // Helper to collect replies authored by user
+            const collectRepliesByUser = (repliesArray, pageUrl, collector) => {
+                if (!Array.isArray(repliesArray)) return;
+                for (const r of repliesArray) {
+                    if (r?.user?.email === email) {
+                        collector.push({
+                            type: 'reply',
+                            text: r.text || '',
+                            url: pageUrl || '',
+                            timestamp: r.timestamp || new Date(0),
+                            likes: r.likes || 0,
+                            dislikes: r.dislikes || 0,
+                            trusts: r.trusts || 0,
+                            distrusts: r.distrusts || 0,
+                            flags: r.flags || 0
+                        });
+                    }
+                    if (Array.isArray(r?.replies) && r.replies.length > 0) {
+                        collectRepliesByUser(r.replies, pageUrl, collector);
+                    }
+                }
+            };
+
+            // Only scan documents that have any replies
+            const commentsWithReplies = await Comment.find(
+                { 'replies.0': { $exists: true } },
+                { url: 1, replies: 1 }
+            ).lean();
+
+            for (const c of commentsWithReplies) {
+                collectRepliesByUser(c.replies || [], c.url || '', activity);
+            }
+        }
+
+        // Messages (direct or group) that involve the user
+        if (includeMessages) {
+            const messages = await Message.find({ participants: email }).sort({ timestamp: -1 }).lean();
+            for (const m of messages) {
+                // Determine counterpart label for direct messages; for groups show groupName
+                let otherEmail = '';
+                if (m.isGroupMessage) {
+                    otherEmail = m.groupName || `Group ${m.groupId || ''}`;
+                } else {
+                    const fromEmail = m?.from?.email;
+                    const toEmail = m?.to?.email;
+                    if (fromEmail && fromEmail !== email) otherEmail = fromEmail;
+                    else if (toEmail && toEmail !== email) otherEmail = toEmail;
+                }
+                activity.push({
+                    type: 'message',
+                    text: m.text || '',
+                    url: '', // messages are not tied to a page URL
+                    timestamp: m.timestamp || m.createdAt || new Date(0),
+                    otherEmail
+                });
+            }
+        }
+
+        // Sort combined activity by timestamp desc
+        activity.sort((a, b) => {
+            const ta = new Date(a.timestamp || 0).getTime();
+            const tb = new Date(b.timestamp || 0).getTime();
+            return tb - ta;
+        });
+
+        res.json(activity);
+    } catch (error) {
+        console.error('Error fetching user activity:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Follow/Unfollow APIs
+
+// Follow a user
+app.post('/api/users/:email/follow', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { email: targetEmail } = req.params;
+        const { follower } = req.body;
+        
+        if (!follower || !follower.email) {
+            return res.status(400).json({ error: 'follower information is required' });
+        }
+        
+        if (follower.email === targetEmail) {
+            return res.status(400).json({ error: 'Cannot follow yourself' });
+        }
+        
+        // Check if already following
+        const existingFollow = await Follow.findOne({
+            'follower.email': follower.email,
+            'following.email': targetEmail
+        });
+        
+        if (existingFollow) {
+            return res.status(400).json({ error: 'Already following this user' });
+        }
+        
+        // Get target user info
+        const targetUser = await User.findOne({ email: targetEmail });
+        if (!targetUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        const follow = new Follow({
+            follower,
+            following: {
+                email: targetUser.email,
+                name: targetUser.name,
+                picture: targetUser.picture
+            }
+        });
+        
+        await follow.save();
+        res.json({ message: 'Successfully followed user', follow });
+    } catch (error) {
+        console.error('Error following user:', error);
+        if (error.code === 11000) {
+            return res.status(400).json({ error: 'Already following this user' });
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Unfollow a user
+app.delete('/api/users/:email/follow', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { email: targetEmail } = req.params;
+        const { followerEmail } = req.body;
+        
+        if (!followerEmail) {
+            return res.status(400).json({ error: 'followerEmail is required' });
+        }
+        
+        const follow = await Follow.findOneAndDelete({
+            'follower.email': followerEmail,
+            'following.email': targetEmail
+        });
+        
+        if (!follow) {
+            return res.status(404).json({ error: 'Follow relationship not found' });
+        }
+        
+        res.json({ message: 'Successfully unfollowed user' });
+    } catch (error) {
+        console.error('Error unfollowing user:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get followers of a user
+app.get('/api/users/:email/followers', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { email } = req.params;
+        
+        const followers = await Follow.find({ 'following.email': email })
+            .sort({ createdAt: -1 })
+            .lean();
+        
+        const followersList = followers.map(f => ({
+            email: f.follower.email,
+            name: f.follower.name,
+            picture: f.follower.picture,
+            followedAt: f.createdAt
+        }));
+        
+        res.json(followersList);
+    } catch (error) {
+        console.error('Error fetching followers:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get users that a user is following
+app.get('/api/users/:email/following', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { email } = req.params;
+        
+        const following = await Follow.find({ 'follower.email': email })
+            .sort({ createdAt: -1 })
+            .lean();
+        
+        const followingList = following.map(f => ({
+            email: f.following.email,
+            name: f.following.name,
+            picture: f.following.picture,
+            followedAt: f.createdAt
+        }));
+        
+        res.json(followingList);
+    } catch (error) {
+        console.error('Error fetching following:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Check if user is following another user
+app.get('/api/users/:followerEmail/is-following/:targetEmail', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { followerEmail, targetEmail } = req.params;
+        
+        const follow = await Follow.findOne({
+            'follower.email': followerEmail,
+            'following.email': targetEmail
+        });
+        
+        res.json({ isFollowing: !!follow });
+    } catch (error) {
+        console.error('Error checking follow status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Search API - Search across comments, replies, and messages
+app.get('/api/search', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        
+        const { q, type, limit = 50 } = req.query;
+        
+        if (!q || !q.trim()) {
+            return res.status(400).json({ error: 'Search query is required' });
+        }
+        
+        const searchTerm = q.trim();
+        const searchRegex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        const results = [];
+        const maxResults = Math.min(parseInt(limit) || 50, 100);
+        
+        // Search in comments
+        if (!type || type === 'comments' || type === 'all') {
+            const comments = await Comment.find({ text: searchRegex })
+                .sort({ timestamp: -1 })
+                .limit(maxResults)
+                .lean();
+            
+            comments.forEach(comment => {
+                results.push({
+                    type: 'comment',
+                    id: comment._id,
+                    text: comment.text,
+                    url: comment.url,
+                    user: comment.user,
+                    timestamp: comment.timestamp,
+                    likes: comment.likes || 0,
+                    dislikes: comment.dislikes || 0,
+                    trusts: comment.trusts || 0,
+                    repliesCount: comment.replies ? comment.replies.length : 0
+                });
+            });
+        }
+        
+        // Search in nested replies (recursively search through comment replies)
+        if (!type || type === 'replies' || type === 'all') {
+            const commentsWithReplies = await Comment.find({ 'replies.text': searchRegex })
+                .sort({ timestamp: -1 })
+                .limit(maxResults)
+                .lean();
+            
+            // Helper function to recursively find matching replies
+            function findMatchingReplies(replies, commentId, commentUrl, parentPath = '') {
+                if (!Array.isArray(replies)) return;
+                
+                replies.forEach((reply, index) => {
+                    if (reply.text && searchRegex.test(reply.text)) {
+                        results.push({
+                            type: 'reply',
+                            id: reply._id,
+                            text: reply.text,
+                            url: commentUrl,
+                            commentId: commentId,
+                            user: reply.user,
+                            timestamp: reply.timestamp,
+                            likes: reply.likes || 0,
+                            dislikes: reply.dislikes || 0,
+                            trusts: reply.trusts || 0,
+                            parentPath: parentPath || 'Comment'
+                        });
+                    }
+                    
+                    // Recursively search nested replies
+                    if (reply.replies && Array.isArray(reply.replies) && reply.replies.length > 0) {
+                        const newPath = parentPath ? `${parentPath} > Reply` : 'Comment > Reply';
+                        findMatchingReplies(reply.replies, commentId, commentUrl, newPath);
+                    }
+                });
+            }
+            
+            commentsWithReplies.forEach(comment => {
+                if (comment.replies && Array.isArray(comment.replies)) {
+                    findMatchingReplies(comment.replies, comment._id, comment.url);
+                }
+            });
+        }
+        
+        // Search in messages (only if user is a participant)
+        if (!type || type === 'messages' || type === 'all') {
+            const { userEmail } = req.query;
+            
+            if (userEmail) {
+                // Only search messages where the user is a participant
+                const messages = await Message.find({
+                    text: searchRegex,
+                    participants: userEmail
+                })
+                    .sort({ timestamp: -1 })
+                    .limit(maxResults)
+                    .lean();
+                
+                messages.forEach(message => {
+                    results.push({
+                        type: message.isGroupMessage ? 'group-message' : 'message',
+                        id: message._id,
+                        text: message.text,
+                        from: message.from,
+                        to: message.to,
+                        groupId: message.groupId,
+                        groupName: message.groupName,
+                        timestamp: message.timestamp,
+                        isGroupMessage: message.isGroupMessage
+                    });
+                });
+            }
+        }
+        
+        // Sort all results by timestamp (newest first)
+        results.sort((a, b) => {
+            const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return timeB - timeA;
+        });
+        
+        // Limit total results
+        const limitedResults = results.slice(0, maxResults);
+        
+        res.json({
+            query: searchTerm,
+            total: limitedResults.length,
+            results: limitedResults
+        });
+    } catch (error) {
+        console.error('Error searching:', error);
         res.status(500).json({ error: error.message });
     }
 });

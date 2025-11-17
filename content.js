@@ -15,6 +15,56 @@ const messagesUIState = {
     unreadCount: 0
 };
 
+const trendingState = {
+    comments: [],
+    isLoading: false,
+    lastFetched: 0,
+    error: null,
+    metric: 'likes',
+    timeRange: 'all',
+    limit: 100,
+    cache: {}
+};
+
+const postsState = {
+    items: [],
+    isLoading: false,
+    lastFetched: 0,
+    error: null,
+    filter: 'all', // 'all' | 'comments' | 'replies' | 'messages'
+    cache: null
+};
+
+const TRENDING_CACHE_DURATION = 60 * 1000; // 1 minute cache
+
+const TRENDING_METRIC_OPTIONS = [
+    { value: 'likes', label: 'Likes' },
+    { value: 'dislikes', label: 'Dislikes' },
+    { value: 'trusts', label: 'Trusted' },
+    { value: 'distrusts', label: 'Mistrusted' },
+    { value: 'flags', label: 'Flagged' }
+];
+
+const TRENDING_TIME_RANGE_OPTIONS = [
+    { value: 'all', label: 'All time' },
+    { value: '24h', label: 'Last 24 hours' },
+    { value: '3d', label: 'Last 3 days' },
+    { value: '7d', label: 'Last 7 days' },
+    { value: '30d', label: 'Last 30 days' },
+    { value: '90d', label: 'Last 90 days' },
+    { value: '1y', label: 'Last 12 months' }
+];
+
+const TRENDING_METRIC_LABELS = TRENDING_METRIC_OPTIONS.reduce((acc, option) => {
+    acc[option.value] = option.label;
+    return acc;
+}, {});
+
+const TRENDING_TIME_RANGE_LABELS = TRENDING_TIME_RANGE_OPTIONS.reduce((acc, option) => {
+    acc[option.value] = option.label;
+    return acc;
+}, {});
+
 function escapeHtml(input) {
     return String(input ?? '')
         .replace(/&/g, '&amp;')
@@ -36,6 +86,26 @@ function formatRelativeTime(date) {
     const days = Math.floor(hours / 24);
     if (days < 7) return `${days}d ago`;
     return date.toLocaleDateString();
+}
+
+function updateTrendingDescription() {
+    const descriptionEl = document.getElementById('trending-description');
+    if (!descriptionEl) return;
+
+    const metricLabel = TRENDING_METRIC_LABELS[trendingState.metric] || TRENDING_METRIC_LABELS.likes;
+    const rangeLabel = TRENDING_TIME_RANGE_LABELS[trendingState.timeRange] || TRENDING_TIME_RANGE_LABELS.all;
+
+    descriptionEl.textContent = `Top ${trendingState.limit} comments by ${metricLabel.toLowerCase()} • ${rangeLabel}`;
+}
+
+function getHostnameFromUrl(url) {
+    if (!url) return '';
+    try {
+        const hostname = new URL(url).hostname || '';
+        return hostname.replace(/^www\./i, '');
+    } catch (error) {
+        return '';
+    }
 }
 
 function createMessageBubbleElement(message, { isFromMe, isGroup, isPending, messageId } = {}) {
@@ -395,11 +465,197 @@ async function createCommentsPanel() {
                     </div>
                 </div>
             </div>
-            <div class="section-placeholder" data-section="trending">Trending coming soon</div>
-            <div class="section-placeholder" data-section="posts">Posts coming soon</div>
-            <div class="section-placeholder" data-section="followers">Followers coming soon</div>
-            <div class="section-placeholder" data-section="following">Following coming soon</div>
-            <div class="section-placeholder" data-section="search">Search coming soon</div>
+            <div class="section-placeholder" data-section="trending">
+                <div class="trending-section" id="trending-section">
+                    <div class="trending-header">
+                        <div class="trending-header-text">
+                            <h4>Trending Comments</h4>
+                            <p id="trending-description">Top 100 comments by likes • All time</p>
+                        </div>
+                        <div class="trending-actions">
+                            <label class="trending-filter" for="trending-metric-select">
+                                <span>Metric</span>
+                                <select id="trending-metric-select" class="trending-filter-select">
+                                    <option value="likes">Likes</option>
+                                    <option value="dislikes">Dislikes</option>
+                                    <option value="trusts">Trusted</option>
+                                    <option value="distrusts">Mistrusted</option>
+                                    <option value="flags">Flagged</option>
+                                </select>
+                            </label>
+                            <label class="trending-filter" for="trending-range-select">
+                                <span>Time range</span>
+                                <select id="trending-range-select" class="trending-filter-select">
+                                    <option value="all">All time</option>
+                                    <option value="24h">Last 24 hours</option>
+                                    <option value="3d">Last 3 days</option>
+                                    <option value="7d">Last 7 days</option>
+                                    <option value="30d">Last 30 days</option>
+                                    <option value="90d">Last 90 days</option>
+                                    <option value="1y">Last 12 months</option>
+                                </select>
+                            </label>
+                            <label class="trending-filter" for="trending-limit-select">
+                                <span>Top</span>
+                                <select id="trending-limit-select" class="trending-filter-select">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100" selected>100</option>
+                                </select>
+                            </label>
+                            <button id="trending-refresh-btn" class="trending-refresh-btn" title="Refresh trending comments">↻ Refresh</button>
+                        </div>
+                    </div>
+                    <div class="trending-body">
+                        <div id="trending-loading" class="trending-loading hidden">
+                            <div class="spinner"></div>
+                            <span>Loading trending comments...</span>
+                        </div>
+                        <div id="trending-error" class="trending-error hidden"></div>
+                        <div id="trending-empty" class="trending-empty hidden">
+                            <div class="trending-empty-icon">🌱</div>
+                            <p>No trending comments yet. Start reacting to comments and check back soon!</p>
+                        </div>
+                        <div id="trending-list" class="trending-list"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="section-placeholder" data-section="posts">
+                <div class="posts-section" id="posts-section">
+                    <div class="posts-header">
+                        <div class="posts-header-text">
+                            <h4>Your Activity</h4>
+                            <p id="posts-description">All your comments, replies, and messages</p>
+                        </div>
+                        <div class="posts-actions">
+                            <label class="posts-filter" for="posts-type-select">
+                                <span>Type</span>
+                                <select id="posts-type-select" class="trending-filter-select">
+                                    <option value="all" selected>All</option>
+                                    <option value="comments">Comments</option>
+                                    <option value="replies">Replies</option>
+                                    <option value="messages">Messages</option>
+                                </select>
+                            </label>
+                            <button id="posts-refresh-btn" class="trending-refresh-btn" title="Refresh your activity">↻ Refresh</button>
+                        </div>
+                    </div>
+                    <div class="posts-body">
+                        <div id="posts-loading" class="trending-loading hidden">
+                            <div class="spinner"></div>
+                            <span>Loading your activity...</span>
+                        </div>
+                        <div id="posts-error" class="trending-error hidden"></div>
+                        <div id="posts-empty" class="trending-empty hidden">
+                            <div class="trending-empty-icon">📝</div>
+                            <p>No activity yet. Your comments, replies and messages will appear here.</p>
+                        </div>
+                        <div id="posts-list" class="trending-list"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="section-placeholder" data-section="followers">
+                <div class="followers-section" id="followers-section">
+                    <div class="followers-header">
+                        <h4>Your Followers</h4>
+                        <button id="followers-refresh-btn" class="trending-refresh-btn" title="Refresh followers">↻ Refresh</button>
+                    </div>
+                    <div class="followers-body">
+                        <div id="followers-loading" class="trending-loading hidden">
+                            <div class="spinner"></div>
+                            <span>Loading followers...</span>
+                        </div>
+                        <div id="followers-error" class="trending-error hidden"></div>
+                        <div id="followers-empty" class="trending-empty hidden">
+                            <div class="trending-empty-icon">👥</div>
+                            <p>No followers yet. Share your comments to get followers!</p>
+                        </div>
+                        <div id="followers-list" class="followers-list"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="section-placeholder" data-section="following">
+                <div class="following-section" id="following-section">
+                    <div class="following-header">
+                        <h4>People You Follow</h4>
+                        <button id="following-refresh-btn" class="trending-refresh-btn" title="Refresh following">↻ Refresh</button>
+                    </div>
+                    <div class="following-search-container">
+                        <div class="following-search-wrapper">
+                            <span class="search-icon">🔍</span>
+                            <input 
+                                id="following-search-input" 
+                                type="text" 
+                                placeholder="Search for users to follow..." 
+                                class="following-search-input"
+                            />
+                        </div>
+                    </div>
+                    <div class="following-body">
+                        <div id="following-loading" class="trending-loading hidden">
+                            <div class="spinner"></div>
+                            <span>Loading following...</span>
+                        </div>
+                        <div id="following-error" class="trending-error hidden"></div>
+                        <div id="following-empty" class="trending-empty hidden">
+                            <div class="trending-empty-icon">➕</div>
+                            <p>You're not following anyone yet. Search for users above or click the Follow button next to usernames!</p>
+                        </div>
+                        <div id="following-search-results" class="following-search-results hidden"></div>
+                        <div id="following-list" class="following-list"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="section-placeholder" data-section="search">
+                <div class="search-section" id="search-section">
+                    <div class="search-header">
+                        <h4>Search Content</h4>
+                        <button id="search-refresh-btn" class="trending-refresh-btn" title="Clear search">↻ Clear</button>
+                    </div>
+                    <div class="search-input-container">
+                        <div class="search-input-wrapper">
+                            <span class="search-icon">🔍</span>
+                            <input 
+                                id="content-search-input" 
+                                type="text" 
+                                placeholder="Search comments, replies, and messages..." 
+                                class="content-search-input"
+                            />
+                        </div>
+                        <div class="search-filters">
+                            <label class="search-filter-label">
+                                <input type="radio" name="search-type" value="all" checked>
+                                <span>All</span>
+                            </label>
+                            <label class="search-filter-label">
+                                <input type="radio" name="search-type" value="comments">
+                                <span>Comments</span>
+                            </label>
+                            <label class="search-filter-label">
+                                <input type="radio" name="search-type" value="replies">
+                                <span>Replies</span>
+                            </label>
+                            <label class="search-filter-label">
+                                <input type="radio" name="search-type" value="messages">
+                                <span>Messages</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="search-body">
+                        <div id="search-loading" class="trending-loading hidden">
+                            <div class="spinner"></div>
+                            <span>Searching...</span>
+                        </div>
+                        <div id="search-error" class="trending-error hidden"></div>
+                        <div id="search-empty" class="trending-empty hidden">
+                            <div class="trending-empty-icon">🔍</div>
+                            <p>Enter a keyword to search across all comments, replies, and messages.</p>
+                        </div>
+                        <div id="search-results" class="search-results hidden"></div>
+                    </div>
+                </div>
+            </div>
             <div class="section-placeholder" data-section="notifications">Notifications coming soon</div>
             <div class="section-placeholder" data-section="profile">Profile coming soon</div>
             <div class="section-placeholder" data-section="settings">Settings coming soon</div>
@@ -545,6 +801,263 @@ async function createCommentsPanel() {
     const sectionsContainer = panel.querySelector('#sections-container');
     const commentsContentEl = panel.querySelector('.comments-content');
     const sortControlsEl = panel.querySelector('.custom-dropdown');
+    const trendingRefreshBtn = document.getElementById('trending-refresh-btn');
+    const trendingMetricSelect = document.getElementById('trending-metric-select');
+    const trendingRangeSelect = document.getElementById('trending-range-select');
+    const trendingLimitSelect = document.getElementById('trending-limit-select');
+    const postsRefreshBtn = document.getElementById('posts-refresh-btn');
+    const postsTypeSelect = document.getElementById('posts-type-select');
+
+    const syncTrendingControlsWithState = () => {
+        if (trendingMetricSelect && trendingMetricSelect.value !== trendingState.metric) {
+            trendingMetricSelect.value = trendingState.metric;
+        }
+        if (trendingRangeSelect && trendingRangeSelect.value !== trendingState.timeRange) {
+            trendingRangeSelect.value = trendingState.timeRange;
+        }
+        if (trendingLimitSelect && Number(trendingLimitSelect.value) !== Number(trendingState.limit)) {
+            trendingLimitSelect.value = String(trendingState.limit);
+        }
+        updateTrendingDescription();
+    };
+
+    const persistTrendingFilters = () => {
+        if (!chrome?.storage?.local) return;
+        try {
+            chrome.storage.local.set({
+                trendingFilters: {
+                    metric: trendingState.metric,
+                    timeRange: trendingState.timeRange,
+                    limit: trendingState.limit
+                }
+            }, () => {
+                if (chrome.runtime?.lastError) {
+                    console.warn('Failed to persist trending filters:', chrome.runtime.lastError.message);
+                }
+            });
+        } catch (storageError) {
+            console.warn('Failed to persist trending filters:', storageError);
+        }
+    };
+
+    try {
+        if (chrome?.storage?.local) {
+            const storedFilters = await new Promise((resolve, reject) => {
+                try {
+                    chrome.storage.local.get(['trendingFilters'], (result) => {
+                        if (chrome.runtime?.lastError) {
+                            reject(new Error(chrome.runtime.lastError.message));
+                        } else {
+                            resolve(result);
+                        }
+                    });
+                } catch (storageError) {
+                    reject(storageError);
+                }
+            });
+
+            if (storedFilters && storedFilters.trendingFilters) {
+                const { metric, timeRange, limit } = storedFilters.trendingFilters;
+                if (metric && TRENDING_METRIC_LABELS[metric]) {
+                    trendingState.metric = metric;
+                }
+                if (timeRange && TRENDING_TIME_RANGE_LABELS[timeRange]) {
+                    trendingState.timeRange = timeRange;
+                }
+                if (limit && [10, 25, 50, 100].includes(Number(limit))) {
+                    trendingState.limit = Number(limit);
+                }
+            }
+        }
+    } catch (storageError) {
+        console.warn('Failed to load trending filters:', storageError);
+    }
+
+    syncTrendingControlsWithState();
+
+    if (trendingRefreshBtn) {
+        trendingRefreshBtn.addEventListener('click', () => {
+            fetchTrendingComments(true);
+        });
+    }
+
+    if (trendingMetricSelect) {
+        trendingMetricSelect.addEventListener('change', () => {
+            const newMetric = trendingMetricSelect.value;
+            if (newMetric !== trendingState.metric) {
+                trendingState.metric = newMetric;
+                trendingState.lastFetched = 0;
+                persistTrendingFilters();
+                syncTrendingControlsWithState();
+                fetchTrendingComments(true);
+            }
+        });
+    }
+
+    if (trendingRangeSelect) {
+        trendingRangeSelect.addEventListener('change', () => {
+            const newRange = trendingRangeSelect.value;
+            if (newRange !== trendingState.timeRange) {
+                trendingState.timeRange = newRange;
+                trendingState.lastFetched = 0;
+                persistTrendingFilters();
+                syncTrendingControlsWithState();
+                fetchTrendingComments(true);
+            }
+        });
+    }
+
+    if (trendingLimitSelect) {
+        trendingLimitSelect.addEventListener('change', () => {
+            const newLimit = Number(trendingLimitSelect.value);
+            if (!Number.isNaN(newLimit) && newLimit !== Number(trendingState.limit)) {
+                trendingState.limit = newLimit;
+                trendingState.lastFetched = 0;
+                persistTrendingFilters();
+                syncTrendingControlsWithState();
+                fetchTrendingComments(true);
+            }
+        });
+    }
+
+    if (postsRefreshBtn) {
+        postsRefreshBtn.addEventListener('click', () => {
+            fetchUserActivity(true);
+        });
+    }
+
+    // Followers and Following refresh buttons
+    const followersRefreshBtn = document.getElementById('followers-refresh-btn');
+    const followingRefreshBtn = document.getElementById('following-refresh-btn');
+    
+    if (followersRefreshBtn) {
+        followersRefreshBtn.addEventListener('click', () => {
+            fetchFollowers(true);
+        });
+    }
+    
+    if (followingRefreshBtn) {
+        followingRefreshBtn.addEventListener('click', () => {
+            fetchFollowing(true);
+        });
+    }
+
+    // Following search input
+    const followingSearchInput = document.getElementById('following-search-input');
+    if (followingSearchInput) {
+        followingSearchInput.addEventListener('input', (e) => {
+            const query = e.target.value;
+            
+            // Clear previous timeout
+            if (followingSearchTimeout) {
+                clearTimeout(followingSearchTimeout);
+            }
+            
+            // Debounce search - wait 300ms after user stops typing
+            followingSearchTimeout = setTimeout(() => {
+                searchUsersToFollow(query);
+            }, 300);
+        });
+        
+        // Also handle Enter key for immediate search
+        followingSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (followingSearchTimeout) {
+                    clearTimeout(followingSearchTimeout);
+                }
+                searchUsersToFollow(e.target.value);
+            }
+        });
+    }
+
+    // Content search input and filters
+    const contentSearchInput = document.getElementById('content-search-input');
+    const searchTypeRadios = document.querySelectorAll('input[name="search-type"]');
+    const searchRefreshBtn = document.getElementById('search-refresh-btn');
+    
+    if (contentSearchInput) {
+        contentSearchInput.addEventListener('input', (e) => {
+            const query = e.target.value;
+            
+            // Clear previous timeout
+            if (contentSearchTimeout) {
+                clearTimeout(contentSearchTimeout);
+            }
+            
+            // Get selected filter type
+            const selectedType = document.querySelector('input[name="search-type"]:checked')?.value || 'all';
+            
+            // Debounce search - wait 300ms after user stops typing
+            contentSearchTimeout = setTimeout(() => {
+                searchContent(query, selectedType);
+            }, 300);
+        });
+        
+        // Also handle Enter key for immediate search
+        contentSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (contentSearchTimeout) {
+                    clearTimeout(contentSearchTimeout);
+                }
+                const selectedType = document.querySelector('input[name="search-type"]:checked')?.value || 'all';
+                searchContent(e.target.value, selectedType);
+            }
+        });
+    }
+    
+    // Search type filter change
+    searchTypeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            const query = contentSearchInput?.value || '';
+            if (query.trim()) {
+                searchContent(query, e.target.value);
+            }
+        });
+    });
+    
+    // Clear search button
+    if (searchRefreshBtn) {
+        searchRefreshBtn.addEventListener('click', () => {
+            if (contentSearchInput) {
+                contentSearchInput.value = '';
+            }
+            clearSearchResults();
+        });
+    }
+
+    // Delegated event listener for follow/unfollow buttons
+    document.addEventListener('click', async (e) => {
+        const followBtn = e.target.closest('.follow-btn');
+        const unfollowBtn = e.target.closest('.unfollow-btn');
+        
+        if (followBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const userEmail = followBtn.getAttribute('data-user-email');
+            const userName = followBtn.getAttribute('data-user-name') || 'User';
+            if (userEmail) {
+                await followUser(userEmail, userName);
+            }
+        } else if (unfollowBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const userEmail = unfollowBtn.getAttribute('data-user-email');
+            const userName = unfollowBtn.getAttribute('data-user-name') || 'User';
+            if (userEmail) {
+                await unfollowUser(userEmail, userName);
+            }
+        }
+    });
+
+    if (postsTypeSelect) {
+        postsTypeSelect.addEventListener('change', () => {
+            const newFilter = postsTypeSelect.value;
+            if (newFilter !== postsState.filter) {
+                postsState.filter = newFilter;
+                fetchUserActivity(true);
+            }
+        });
+    }
 
     // Messages state references (shared with global socket handlers)
     messagesUIState.selectedConversationEmail = null;
@@ -1253,6 +1766,23 @@ async function createCommentsPanel() {
             } else {
                 // Leaving messages: stop polling
                 clearMessagePolling();
+                if (sectionKey === 'trending') {
+                    syncTrendingControlsWithState();
+                    fetchTrendingComments();
+                } else if (sectionKey === 'posts') {
+                    fetchUserActivity(true);
+                } else if (sectionKey === 'followers') {
+                    fetchFollowers(true);
+                } else if (sectionKey === 'following') {
+                    fetchFollowing(true);
+                } else if (sectionKey === 'search') {
+                    // Initialize search section - clear any previous search
+                    const searchInput = document.getElementById('content-search-input');
+                    if (searchInput) {
+                        searchInput.value = '';
+                    }
+                    clearSearchResults();
+                }
             }
         }
 
@@ -1844,22 +2374,22 @@ async function checkServerHealth(serverKey) {
     if (!server) return false;
     
     try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000); // 5s timeout for health check
-        
-        const response = await fetch(`${server.base}/health`, {
-            method: 'GET',
-            signal: controller.signal
-        });
-        
-        clearTimeout(timeout);
-        
-        if (response.ok) {
-            const data = await response.json();
-            console.log(`✅ ${server.name} is healthy:`, data);
-            return data.database === 'connected'; // Only healthy if DB is connected
+        const response = await backgroundFetch(`${server.base}/health`, { method: 'GET' });
+        if (!response || response.error) {
+            throw new Error(response?.error || 'Health check failed');
         }
-        return false;
+        if (!response.ok) {
+            return false;
+        }
+        let data = {};
+        try {
+            data = JSON.parse(response.body || '{}');
+        } catch (parseError) {
+            console.warn(`⚠️ Failed to parse health check response from ${server.name}:`, parseError);
+            return false;
+        }
+        console.log(`✅ ${server.name} is healthy:`, data);
+        return data.database === 'connected';
     } catch (error) {
         console.log(`❌ ${server.name} health check failed:`, error.message);
         return false;
@@ -2023,6 +2553,24 @@ async function apiFetch(url, options = {}, retryCount = 0) {
             }
             
             reject(new Error(`Network error: ${err.message}`));
+        }
+    });
+}
+
+async function backgroundFetch(url, options = {}) {
+    return new Promise((resolve, reject) => {
+        try {
+            chrome.runtime.sendMessage({ action: 'apiFetch', url, options }, (response) => {
+                if (chrome.runtime.lastError) {
+                    return reject(new Error(chrome.runtime.lastError.message));
+                }
+                if (!response) {
+                    return reject(new Error('No response from background fetch'));
+                }
+                resolve(response);
+            });
+        } catch (error) {
+            reject(error);
         }
     });
 }
@@ -2613,6 +3161,1182 @@ async function loadComments(sortBy = currentSortBy, retryCount = 0) {
                     </div>
                 </details>
             </div>`;
+    }
+}
+
+function setTrendingLoading(isLoading) {
+    const loadingEl = document.getElementById('trending-loading');
+    const refreshBtn = document.getElementById('trending-refresh-btn');
+    const metricSelect = document.getElementById('trending-metric-select');
+    const rangeSelect = document.getElementById('trending-range-select');
+
+    if (loadingEl) {
+        if (isLoading) {
+            loadingEl.classList.remove('hidden');
+        } else {
+            loadingEl.classList.add('hidden');
+        }
+    }
+
+    if (refreshBtn) {
+        refreshBtn.disabled = isLoading;
+        refreshBtn.setAttribute('aria-busy', String(isLoading));
+    }
+
+    if (metricSelect) {
+        metricSelect.disabled = isLoading;
+    }
+    if (rangeSelect) {
+        rangeSelect.disabled = isLoading;
+    }
+}
+
+function setTrendingError(message = '') {
+    const errorEl = document.getElementById('trending-error');
+    if (!errorEl) return;
+
+    if (message) {
+        errorEl.textContent = message;
+        errorEl.classList.remove('hidden');
+    } else {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+    }
+}
+
+function setPostsLoading(isLoading) {
+    const loadingEl = document.getElementById('posts-loading');
+    const refreshBtn = document.getElementById('posts-refresh-btn');
+    const typeSelect = document.getElementById('posts-type-select');
+    if (loadingEl) {
+        if (isLoading) loadingEl.classList.remove('hidden');
+        else loadingEl.classList.add('hidden');
+    }
+    if (refreshBtn) {
+        refreshBtn.disabled = isLoading;
+        refreshBtn.setAttribute('aria-busy', String(isLoading));
+    }
+    if (typeSelect) typeSelect.disabled = isLoading;
+}
+
+function setPostsError(message = '') {
+    const errorEl = document.getElementById('posts-error');
+    if (!errorEl) return;
+    if (message) {
+        errorEl.textContent = message;
+        errorEl.classList.remove('hidden');
+    } else {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+    }
+}
+
+function renderPostsList(items = []) {
+    const listEl = document.getElementById('posts-list');
+    const emptyEl = document.getElementById('posts-empty');
+    if (!listEl || !emptyEl) return;
+    listEl.innerHTML = '';
+    if (!Array.isArray(items) || items.length === 0) {
+        emptyEl.classList.remove('hidden');
+        return;
+    }
+    emptyEl.classList.add('hidden');
+    items.forEach((it) => {
+        // it: { type: 'comment'|'reply'|'message', text, url, timestamp, stats?, otherUser? }
+        const card = document.createElement('div');
+        card.className = 'trending-card';
+
+        const header = document.createElement('div');
+        header.className = 'trending-card-header';
+        card.appendChild(header);
+
+        const badge = document.createElement('div');
+        badge.className = 'trending-rank';
+        badge.textContent = it.type === 'comment' ? 'Comment' : it.type === 'reply' ? 'Reply' : 'Message';
+        header.appendChild(badge);
+
+        const info = document.createElement('div');
+        info.className = 'trending-user-info';
+        header.appendChild(info);
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'trending-user-name';
+        nameEl.textContent = it.otherUser ? it.otherUser : 'You';
+        info.appendChild(nameEl);
+
+        const metaEl = document.createElement('span');
+        metaEl.className = 'trending-user-meta';
+        const host = getHostnameFromUrl(it.url);
+        const timeLabel = it.timestamp ? formatRelativeTime(new Date(it.timestamp)) : '';
+        const metaParts = [host, timeLabel].filter(Boolean);
+        metaEl.textContent = metaParts.join(' • ');
+        info.appendChild(metaEl);
+
+        const textEl = document.createElement('div');
+        textEl.className = 'trending-card-text';
+        const contentText = it?.text && String(it.text).trim();
+        textEl.textContent = contentText || '(No text)';
+        if (!contentText) textEl.classList.add('trending-card-text--empty');
+        card.appendChild(textEl);
+
+        const stats = document.createElement('div');
+        stats.className = 'trending-card-stats';
+        const like = it?.likes || 0;
+        const dislike = it?.dislikes || 0;
+        const trusts = it?.trusts || 0;
+        const distrusts = it?.distrusts || 0;
+        const flags = it?.flags || 0;
+        [
+            { icon: '👍', value: like, label: 'Likes' },
+            { icon: '👎', value: dislike, label: 'Dislikes' },
+            { icon: '✅', value: trusts, label: 'Trusts' },
+            { icon: '❌', value: distrusts, label: 'Distrusts' },
+            { icon: '🚩', value: flags, label: 'Flags' },
+        ].forEach(({ icon, value, label }) => {
+            const stat = document.createElement('span');
+            stat.className = 'trending-stat';
+            stat.title = label;
+            stat.textContent = `${icon} ${value}`;
+            stats.appendChild(stat);
+        });
+        card.appendChild(stats);
+
+        if (it?.url) {
+            const linkRow = document.createElement('div');
+            linkRow.className = 'trending-card-link-row';
+            const link = document.createElement('a');
+            link.href = it.url;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.className = 'trending-card-link';
+            link.textContent = it.url;
+            link.title = it.url;
+            linkRow.appendChild(link);
+            card.appendChild(linkRow);
+        }
+
+        listEl.appendChild(card);
+    });
+}
+
+async function fetchUserActivity(forceRefresh = false) {
+    const listEl = document.getElementById('posts-list');
+    if (!listEl) return;
+    if (!currentUser?.email) {
+        setPostsError('Please sign in to view your activity');
+        renderPostsList([]);
+        return;
+    }
+    if (postsState.isLoading && !forceRefresh) return;
+    postsState.isLoading = true;
+    setPostsError('');
+    setPostsLoading(true);
+    try {
+        const query = new URLSearchParams({
+            email: String(currentUser.email),
+            filter: postsState.filter
+        });
+        // Expected server endpoint providing combined activity; client is defensive if absent.
+        const response = await apiFetch(`${API_BASE_URL}/users/${encodeURIComponent(currentUser.email)}/activity?${query.toString()}`);
+        if (!response || response.error) throw new Error(response?.error || 'Unable to load activity');
+        if (!response.ok) {
+            let body = {};
+            try { body = JSON.parse(response.body || '{}'); } catch (_) {}
+            throw new Error(body?.error || `Server returned ${response.status}`);
+        }
+        let data = [];
+        try { data = JSON.parse(response.body || '[]'); } catch (_) { data = []; }
+        if (!Array.isArray(data)) data = [];
+        // Normalize items to expected fields
+        const normalized = data.map((d) => ({
+            type: d?.type || (d?.replyTo ? 'reply' : d?.otherEmail ? 'message' : 'comment'),
+            text: d?.text || d?.content || '',
+            url: d?.url || d?.pageUrl || '',
+            timestamp: d?.timestamp || d?.createdAt || Date.now(),
+            likes: d?.likes || 0,
+            dislikes: d?.dislikes || 0,
+            trusts: d?.trusts || 0,
+            distrusts: d?.distrusts || 0,
+            flags: d?.flags || 0,
+            otherUser: d?.otherEmail || d?.to?.email || d?.from?.email || ''
+        }));
+        postsState.items = normalized;
+        postsState.lastFetched = Date.now();
+        postsState.error = null;
+        setPostsError('');
+        renderPostsList(normalized);
+    } catch (error) {
+        console.error('Failed to fetch user activity:', error);
+        const msg = error?.message || 'Failed to load your activity';
+        postsState.error = msg;
+        setPostsError(msg);
+        if (Array.isArray(postsState.items) && postsState.items.length) {
+            renderPostsList(postsState.items);
+        } else {
+            renderPostsList([]);
+        }
+    } finally {
+        postsState.isLoading = false;
+        setPostsLoading(false);
+    }
+}
+
+// Followers and Following state
+const followersState = {
+    items: [],
+    isLoading: false,
+    lastFetched: 0,
+    error: null
+};
+
+const followingState = {
+    items: [],
+    isLoading: false,
+    lastFetched: 0,
+    error: null
+};
+
+// Cache for follow status to avoid repeated API calls
+const followStatusCache = new Map();
+
+// Search state
+const searchState = {
+    query: '',
+    type: 'all',
+    results: [],
+    isLoading: false,
+    error: null
+};
+
+let contentSearchTimeout = null;
+
+// Fetch followers list
+async function fetchFollowers(forceRefresh = false) {
+    if (!currentUser?.email) {
+        setFollowersError('Please sign in to view your followers');
+        renderFollowersList([]);
+        return;
+    }
+    
+    if (followersState.isLoading && !forceRefresh) return;
+    followersState.isLoading = true;
+    setFollowersError('');
+    setFollowersLoading(true);
+    
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/users/${encodeURIComponent(currentUser.email)}/followers`);
+        if (!response || response.error) throw new Error(response?.error || 'Unable to load followers');
+        if (!response.ok) {
+            let body = {};
+            try { body = JSON.parse(response.body || '{}'); } catch (_) {}
+            throw new Error(body?.error || `Server returned ${response.status}`);
+        }
+        
+        let data = [];
+        try { data = JSON.parse(response.body || '[]'); } catch (_) { data = []; }
+        if (!Array.isArray(data)) data = [];
+        
+        followersState.items = data;
+        followersState.lastFetched = Date.now();
+        followersState.error = null;
+        setFollowersError('');
+        renderFollowersList(data);
+    } catch (error) {
+        console.error('Failed to fetch followers:', error);
+        const msg = error?.message || 'Failed to load your followers';
+        followersState.error = msg;
+        setFollowersError(msg);
+        renderFollowersList([]);
+    } finally {
+        followersState.isLoading = false;
+        setFollowersLoading(false);
+    }
+}
+
+// Fetch following list
+async function fetchFollowing(forceRefresh = false) {
+    if (!currentUser?.email) {
+        setFollowingError('Please sign in to view who you follow');
+        renderFollowingList([]);
+        return;
+    }
+    
+    if (followingState.isLoading && !forceRefresh) return;
+    followingState.isLoading = true;
+    setFollowingError('');
+    setFollowingLoading(true);
+    
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/users/${encodeURIComponent(currentUser.email)}/following`);
+        if (!response || response.error) throw new Error(response?.error || 'Unable to load following');
+        if (!response.ok) {
+            let body = {};
+            try { body = JSON.parse(response.body || '{}'); } catch (_) {}
+            throw new Error(body?.error || `Server returned ${response.status}`);
+        }
+        
+        let data = [];
+        try { data = JSON.parse(response.body || '[]'); } catch (_) { data = []; }
+        if (!Array.isArray(data)) data = [];
+        
+        followingState.items = data;
+        followingState.lastFetched = Date.now();
+        followingState.error = null;
+        setFollowingError('');
+        renderFollowingList(data);
+    } catch (error) {
+        console.error('Failed to fetch following:', error);
+        const msg = error?.message || 'Failed to load who you follow';
+        followingState.error = msg;
+        setFollowingError(msg);
+        renderFollowingList([]);
+    } finally {
+        followingState.isLoading = false;
+        setFollowingLoading(false);
+    }
+}
+
+// Render followers list
+function renderFollowersList(followers = []) {
+    const listEl = document.getElementById('followers-list');
+    const emptyEl = document.getElementById('followers-empty');
+    if (!listEl || !emptyEl) return;
+    
+    listEl.innerHTML = '';
+    if (!Array.isArray(followers) || followers.length === 0) {
+        emptyEl.classList.remove('hidden');
+        return;
+    }
+    emptyEl.classList.add('hidden');
+    
+    followers.forEach((follower) => {
+        const card = document.createElement('div');
+        card.className = 'follower-card';
+        card.innerHTML = `
+            <img src="${follower.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="${follower.name || 'User'}" class="follower-avatar">
+            <div class="follower-info">
+                <div class="follower-name">${follower.name || 'Anonymous'}</div>
+                <div class="follower-email">${follower.email || ''}</div>
+                ${follower.followedAt ? `<div class="follower-date">Followed ${formatRelativeTime(new Date(follower.followedAt))}</div>` : ''}
+            </div>
+        `;
+        listEl.appendChild(card);
+    });
+}
+
+// Render following list
+function renderFollowingList(following = []) {
+    const listEl = document.getElementById('following-list');
+    const emptyEl = document.getElementById('following-empty');
+    const searchResultsEl = document.getElementById('following-search-results');
+    if (!listEl || !emptyEl) return;
+    
+    // Hide search results when showing following list
+    if (searchResultsEl) {
+        searchResultsEl.classList.add('hidden');
+    }
+    
+    listEl.innerHTML = '';
+    if (!Array.isArray(following) || following.length === 0) {
+        emptyEl.classList.remove('hidden');
+        return;
+    }
+    emptyEl.classList.add('hidden');
+    
+    following.forEach((user) => {
+        const card = document.createElement('div');
+        card.className = 'following-card';
+        card.innerHTML = `
+            <img src="${user.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="${user.name || 'User'}" class="following-avatar">
+            <div class="following-info">
+                <div class="following-name">${user.name || 'Anonymous'}</div>
+                <div class="following-email">${user.email || ''}</div>
+                ${user.followedAt ? `<div class="following-date">Following since ${formatRelativeTime(new Date(user.followedAt))}</div>` : ''}
+            </div>
+            <button class="unfollow-btn" data-user-email="${user.email}" data-user-name="${user.name || 'User'}" title="Unfollow ${user.name || 'user'}">
+                <span class="unfollow-btn-text">Unfollow</span>
+            </button>
+        `;
+        listEl.appendChild(card);
+    });
+}
+
+// Search for users to follow
+let followingSearchTimeout = null;
+async function searchUsersToFollow(query) {
+    if (!query || !query.trim()) {
+        // Clear search results and show following list
+        const searchResultsEl = document.getElementById('following-search-results');
+        const listEl = document.getElementById('following-list');
+        if (searchResultsEl) {
+            searchResultsEl.classList.add('hidden');
+        }
+        if (listEl) {
+            listEl.style.display = '';
+        }
+        // Reload following list
+        fetchFollowing(true);
+        return;
+    }
+    
+    const searchTerm = query.trim();
+    if (searchTerm.length < 1) return;
+    
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/users/search?q=${encodeURIComponent(searchTerm)}&limit=20`);
+        if (!response || response.error) {
+            throw new Error(response?.error || 'Unable to search users');
+        }
+        if (!response.ok) {
+            let body = {};
+            try { body = JSON.parse(response.body || '{}'); } catch (_) {}
+            throw new Error(body?.error || `Server returned ${response.status}`);
+        }
+        
+        let payload = {};
+        try { 
+            payload = JSON.parse(response.body || '{}'); 
+        } catch (parseError) {
+            console.error('Error parsing search response:', parseError);
+            payload = {};
+        }
+        
+        const results = payload.results || [];
+        renderFollowingSearchResults(results);
+        
+        // Hide following list when showing search results
+        const listEl = document.getElementById('following-list');
+        if (listEl) {
+            listEl.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('Failed to search users:', error);
+        const searchResultsEl = document.getElementById('following-search-results');
+        if (searchResultsEl) {
+            searchResultsEl.innerHTML = `
+                <div class="trending-error">
+                    ${error?.message || 'Failed to search users'}
+                </div>
+            `;
+            searchResultsEl.classList.remove('hidden');
+        }
+    }
+}
+
+// Render search results for following section
+async function renderFollowingSearchResults(results = []) {
+    const searchResultsEl = document.getElementById('following-search-results');
+    const listEl = document.getElementById('following-list');
+    if (!searchResultsEl) return;
+    
+    searchResultsEl.innerHTML = '';
+    
+    if (!Array.isArray(results) || results.length === 0) {
+        searchResultsEl.innerHTML = `
+            <div class="trending-empty">
+                <div class="trending-empty-icon">🔍</div>
+                <p>No users found. Try a different search term.</p>
+                <p style="font-size: 11px; color: #8a8d91; margin-top: 8px;">Note: Users must have installed the extension to appear in search results.</p>
+            </div>
+        `;
+        searchResultsEl.classList.remove('hidden');
+        return;
+    }
+    
+    // Check follow status for each user
+    const currentUserEmail = currentUser?.email;
+    const resultsWithStatus = await Promise.all(results.map(async (user) => {
+        if (!currentUserEmail || currentUserEmail === user.email) {
+            return { ...user, isFollowing: false, canFollow: false };
+        }
+        const isFollowing = await checkFollowStatus(user.email);
+        return { ...user, isFollowing, canFollow: true };
+    }));
+    
+    searchResultsEl.innerHTML = '<div style="padding: 8px 12px; font-size: 12px; color: #65676b; font-weight: 600; border-bottom: 1px solid #e4e6eb;">Search Results (' + results.length + ')</div>';
+    
+    resultsWithStatus.forEach((user) => {
+        const card = document.createElement('div');
+        card.className = 'following-card';
+        
+        // Don't show follow button for current user
+        const followButtonHtml = user.canFollow 
+            ? (user.isFollowing 
+                ? `<button class="unfollow-btn" data-user-email="${user.email}" data-user-name="${user.name || 'User'}" title="Unfollow ${user.name || 'user'}">
+                    <span class="unfollow-btn-text">Unfollow</span>
+                   </button>`
+                : `<button class="follow-btn" data-user-email="${user.email}" data-user-name="${user.name || 'User'}" title="Follow ${user.name || 'user'}">
+                    <span class="follow-btn-text">Follow</span>
+                   </button>`)
+            : '';
+        
+        card.innerHTML = `
+            <img src="${user.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="${user.name || 'User'}" class="following-avatar">
+            <div class="following-info">
+                <div class="following-name">${user.name || 'Anonymous'}</div>
+                <div class="following-email">${user.email || ''}</div>
+            </div>
+            ${followButtonHtml}
+        `;
+        searchResultsEl.appendChild(card);
+    });
+    
+    searchResultsEl.classList.remove('hidden');
+}
+
+// Helper functions for followers/following UI
+function setFollowersLoading(isLoading) {
+    const loadingEl = document.getElementById('followers-loading');
+    const refreshBtn = document.getElementById('followers-refresh-btn');
+    if (loadingEl) {
+        if (isLoading) loadingEl.classList.remove('hidden');
+        else loadingEl.classList.add('hidden');
+    }
+    if (refreshBtn) {
+        refreshBtn.disabled = isLoading;
+        refreshBtn.setAttribute('aria-busy', String(isLoading));
+    }
+}
+
+function setFollowersError(message = '') {
+    const errorEl = document.getElementById('followers-error');
+    if (!errorEl) return;
+    if (message) {
+        errorEl.textContent = message;
+        errorEl.classList.remove('hidden');
+    } else {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+    }
+}
+
+function setFollowingLoading(isLoading) {
+    const loadingEl = document.getElementById('following-loading');
+    const refreshBtn = document.getElementById('following-refresh-btn');
+    if (loadingEl) {
+        if (isLoading) loadingEl.classList.remove('hidden');
+        else loadingEl.classList.add('hidden');
+    }
+    if (refreshBtn) {
+        refreshBtn.disabled = isLoading;
+        refreshBtn.setAttribute('aria-busy', String(isLoading));
+    }
+}
+
+function setFollowingError(message = '') {
+    const errorEl = document.getElementById('following-error');
+    if (!errorEl) return;
+    if (message) {
+        errorEl.textContent = message;
+        errorEl.classList.remove('hidden');
+    } else {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+    }
+}
+
+// Follow/Unfollow functions
+async function followUser(targetEmail, targetName) {
+    if (!currentUser?.email) {
+        alert('Please sign in to follow users');
+        return;
+    }
+    
+    if (currentUser.email === targetEmail) {
+        alert('Cannot follow yourself');
+        return;
+    }
+    
+    try {
+        // Pass body as object - background.js will stringify it and add Content-Type header
+        const response = await apiFetch(`${API_BASE_URL}/users/${encodeURIComponent(targetEmail)}/follow`, {
+            method: 'POST',
+            body: { follower: currentUser }
+        });
+        
+        if (!response || response.error) throw new Error(response?.error || 'Failed to follow user');
+        if (!response.ok) {
+            let body = {};
+            try { body = JSON.parse(response.body || '{}'); } catch (_) {}
+            throw new Error(body?.error || `Server returned ${response.status}`);
+        }
+        
+        // Update button state
+        updateFollowButtonState(targetEmail, true);
+        followStatusCache.set(targetEmail, true);
+        
+        // Refresh following list or search results if we're on that tab
+        const activeSection = document.querySelector('.section-tab.active')?.getAttribute('data-section');
+        if (activeSection === 'following') {
+            const searchInput = document.getElementById('following-search-input');
+            if (searchInput && searchInput.value.trim()) {
+                // If searching, refresh search results
+                searchUsersToFollow(searchInput.value);
+            } else {
+                // Otherwise refresh following list
+                fetchFollowing(true);
+            }
+        }
+    } catch (error) {
+        console.error('Failed to follow user:', error);
+        alert(error?.message || 'Failed to follow user');
+    }
+}
+
+async function unfollowUser(targetEmail, targetName) {
+    if (!currentUser?.email) {
+        alert('Please sign in to unfollow users');
+        return;
+    }
+    
+    try {
+        // Pass body as object - background.js will stringify it and add Content-Type header
+        const response = await apiFetch(`${API_BASE_URL}/users/${encodeURIComponent(targetEmail)}/follow`, {
+            method: 'DELETE',
+            body: { followerEmail: currentUser.email }
+        });
+        
+        if (!response || response.error) throw new Error(response?.error || 'Failed to unfollow user');
+        if (!response.ok) {
+            let body = {};
+            try { body = JSON.parse(response.body || '{}'); } catch (_) {}
+            throw new Error(body?.error || `Server returned ${response.status}`);
+        }
+        
+        // Update button state
+        updateFollowButtonState(targetEmail, false);
+        followStatusCache.set(targetEmail, false);
+        
+        // Refresh following list or search results if we're on that tab
+        const activeSection = document.querySelector('.section-tab.active')?.getAttribute('data-section');
+        if (activeSection === 'following') {
+            const searchInput = document.getElementById('following-search-input');
+            if (searchInput && searchInput.value.trim()) {
+                // If searching, refresh search results
+                searchUsersToFollow(searchInput.value);
+            } else {
+                // Otherwise refresh following list
+                fetchFollowing(true);
+            }
+        }
+    } catch (error) {
+        console.error('Failed to unfollow user:', error);
+        alert(error?.message || 'Failed to unfollow user');
+    }
+}
+
+// Update follow button state
+function updateFollowButtonState(userEmail, isFollowing) {
+    const buttons = document.querySelectorAll(`.follow-btn[data-user-email="${userEmail}"], .unfollow-btn[data-user-email="${userEmail}"]`);
+    buttons.forEach(btn => {
+        if (isFollowing) {
+            btn.classList.remove('follow-btn');
+            btn.classList.add('unfollow-btn');
+            const textSpan = btn.querySelector('.follow-btn-text') || btn.querySelector('.unfollow-btn-text');
+            if (textSpan) {
+                textSpan.textContent = 'Unfollow';
+                textSpan.className = 'unfollow-btn-text';
+            }
+        } else {
+            btn.classList.remove('unfollow-btn');
+            btn.classList.add('follow-btn');
+            const textSpan = btn.querySelector('.follow-btn-text') || btn.querySelector('.unfollow-btn-text');
+            if (textSpan) {
+                textSpan.textContent = 'Follow';
+                textSpan.className = 'follow-btn-text';
+            }
+        }
+    });
+}
+
+// Check follow status for a user
+async function checkFollowStatus(targetEmail) {
+    if (!currentUser?.email) return false;
+    if (currentUser.email === targetEmail) return false;
+    
+    // Check cache first
+    if (followStatusCache.has(targetEmail)) {
+        return followStatusCache.get(targetEmail);
+    }
+    
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/users/${encodeURIComponent(currentUser.email)}/is-following/${encodeURIComponent(targetEmail)}`);
+        if (!response || response.error) return false;
+        if (!response.ok) return false;
+        
+        let data = {};
+        try { data = JSON.parse(response.body || '{}'); } catch (_) {}
+        const isFollowing = data.isFollowing || false;
+        followStatusCache.set(targetEmail, isFollowing);
+        return isFollowing;
+    } catch (error) {
+        console.error('Failed to check follow status:', error);
+        return false;
+    }
+}
+
+// Content search functions
+async function searchContent(query, type = 'all') {
+    if (!query || !query.trim()) {
+        clearSearchResults();
+        return;
+    }
+    
+    const searchTerm = query.trim();
+    if (searchTerm.length < 2) {
+        setSearchError('Please enter at least 2 characters');
+        return;
+    }
+    
+    searchState.query = searchTerm;
+    searchState.type = type;
+    searchState.isLoading = true;
+    searchState.error = null;
+    
+    setSearchError('');
+    setSearchLoading(true);
+    hideSearchEmpty();
+    
+    try {
+        const params = new URLSearchParams({
+            q: searchTerm,
+            limit: '50'
+        });
+        
+        if (type && type !== 'all') {
+            params.append('type', type);
+        }
+        
+        // Include user email for message search
+        if (currentUser?.email) {
+            params.append('userEmail', currentUser.email);
+        }
+        
+        const response = await apiFetch(`${API_BASE_URL}/search?${params.toString()}`);
+        
+        if (!response || response.error) {
+            throw new Error(response?.error || 'Unable to search content');
+        }
+        
+        if (!response.ok) {
+            let body = {};
+            try { body = JSON.parse(response.body || '{}'); } catch (_) {}
+            throw new Error(body?.error || `Server returned ${response.status}`);
+        }
+        
+        let data = {};
+        try {
+            data = JSON.parse(response.body || '{}');
+        } catch (parseError) {
+            console.error('Error parsing search response:', parseError);
+            throw new Error('Invalid response from server');
+        }
+        
+        const results = data.results || [];
+        searchState.results = results;
+        searchState.error = null;
+        
+        renderSearchResults(results, searchTerm);
+    } catch (error) {
+        console.error('Failed to search content:', error);
+        const msg = error?.message || 'Failed to search content';
+        searchState.error = msg;
+        setSearchError(msg);
+        renderSearchResults([]);
+    } finally {
+        searchState.isLoading = false;
+        setSearchLoading(false);
+    }
+}
+
+function renderSearchResults(results = [], query = '') {
+    const resultsEl = document.getElementById('search-results');
+    const emptyEl = document.getElementById('search-empty');
+    if (!resultsEl || !emptyEl) return;
+    
+    resultsEl.innerHTML = '';
+    
+    if (!Array.isArray(results) || results.length === 0) {
+        resultsEl.classList.add('hidden');
+        emptyEl.classList.remove('hidden');
+        emptyEl.innerHTML = `
+            <div class="trending-empty-icon">🔍</div>
+            <p>No results found for "${escapeHtml(query)}"</p>
+            <p style="font-size: 11px; color: #8a8d91; margin-top: 8px;">Try a different keyword or check your search filters.</p>
+        `;
+        return;
+    }
+    
+    emptyEl.classList.add('hidden');
+    resultsEl.classList.remove('hidden');
+    
+    // Add results header
+    const header = document.createElement('div');
+    header.className = 'search-results-header';
+    header.innerHTML = `<div style="padding: 8px 12px; font-size: 12px; color: #65676b; font-weight: 600; border-bottom: 1px solid #e4e6eb;">Found ${results.length} result${results.length !== 1 ? 's' : ''}</div>`;
+    resultsEl.appendChild(header);
+    
+    results.forEach((result) => {
+        const card = document.createElement('div');
+        card.className = 'search-result-card';
+        
+        // Determine type badge and icon
+        let typeBadge = '';
+        let typeIcon = '';
+        if (result.type === 'comment') {
+            typeBadge = 'Comment';
+            typeIcon = '💬';
+        } else if (result.type === 'reply') {
+            typeBadge = 'Reply';
+            typeIcon = '↩️';
+        } else if (result.type === 'message') {
+            typeBadge = 'Message';
+            typeIcon = '📨';
+        } else if (result.type === 'group-message') {
+            typeBadge = 'Group Message';
+            typeIcon = '👥';
+        }
+        
+        // Highlight search term in text
+        const highlightedText = highlightSearchTerm(result.text, query);
+        
+        // Build card content based on type
+        let cardContent = '';
+        
+        if (result.type === 'comment' || result.type === 'reply') {
+            const user = result.user || {};
+            const url = result.url || '';
+            const hostname = url ? getHostnameFromUrl(url) : '';
+            
+            cardContent = `
+                <div class="search-result-header">
+                    <div class="search-result-badge">${typeIcon} ${typeBadge}</div>
+                    <div class="search-result-user">
+                        <img src="${user.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="${user.name || 'User'}" class="search-result-avatar">
+                        <div class="search-result-user-info">
+                            <div class="search-result-user-name">${user.name || 'Anonymous'}</div>
+                            <div class="search-result-meta">
+                                ${hostname ? `<span>${hostname}</span>` : ''}
+                                ${result.timestamp ? `<span>• ${formatRelativeTime(new Date(result.timestamp))}</span>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="search-result-text">${highlightedText}</div>
+                ${result.type === 'comment' ? `
+                    <div class="search-result-stats">
+                        <span>👍 ${result.likes || 0}</span>
+                        <span>👎 ${result.dislikes || 0}</span>
+                        <span>✅ ${result.trusts || 0}</span>
+                        ${result.repliesCount > 0 ? `<span>💬 ${result.repliesCount} replies</span>` : ''}
+                    </div>
+                ` : result.type === 'reply' ? `
+                    <div class="search-result-stats">
+                        <span>👍 ${result.likes || 0}</span>
+                        <span>👎 ${result.dislikes || 0}</span>
+                        <span>✅ ${result.trusts || 0}</span>
+                    </div>
+                ` : ''}
+                ${url ? `
+                    <div class="search-result-link">
+                        <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>
+                    </div>
+                ` : ''}
+            `;
+        } else if (result.type === 'message' || result.type === 'group-message') {
+            const from = result.from || {};
+            const to = result.to || {};
+            
+            cardContent = `
+                <div class="search-result-header">
+                    <div class="search-result-badge">${typeIcon} ${typeBadge}</div>
+                    <div class="search-result-user">
+                        <img src="${from.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="${from.name || 'User'}" class="search-result-avatar">
+                        <div class="search-result-user-info">
+                            <div class="search-result-user-name">
+                                ${from.name || 'Anonymous'}
+                                ${result.type === 'message' ? ` → ${to.name || 'User'}` : ''}
+                                ${result.type === 'group-message' ? ` (${result.groupName || 'Group'})` : ''}
+                            </div>
+                            <div class="search-result-meta">
+                                ${result.timestamp ? `<span>${formatRelativeTime(new Date(result.timestamp))}</span>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="search-result-text">${highlightedText}</div>
+            `;
+        }
+        
+        card.innerHTML = cardContent;
+        resultsEl.appendChild(card);
+    });
+}
+
+function highlightSearchTerm(text, query) {
+    if (!text || !query) return escapeHtml(text || '');
+    const escapedText = escapeHtml(text);
+    const escapedQuery = escapeHtml(query);
+    const regex = new RegExp(`(${escapedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    return escapedText.replace(regex, '<mark>$1</mark>');
+}
+
+function clearSearchResults() {
+    const resultsEl = document.getElementById('search-results');
+    const emptyEl = document.getElementById('search-empty');
+    if (resultsEl) {
+        resultsEl.classList.add('hidden');
+        resultsEl.innerHTML = '';
+    }
+    if (emptyEl) {
+        emptyEl.classList.remove('hidden');
+        emptyEl.innerHTML = `
+            <div class="trending-empty-icon">🔍</div>
+            <p>Enter a keyword to search across all comments, replies, and messages.</p>
+        `;
+    }
+    searchState.query = '';
+    searchState.results = [];
+    searchState.error = null;
+}
+
+function setSearchLoading(isLoading) {
+    const loadingEl = document.getElementById('search-loading');
+    if (loadingEl) {
+        if (isLoading) loadingEl.classList.remove('hidden');
+        else loadingEl.classList.add('hidden');
+    }
+}
+
+function setSearchError(message = '') {
+    const errorEl = document.getElementById('search-error');
+    if (!errorEl) return;
+    if (message) {
+        errorEl.textContent = message;
+        errorEl.classList.remove('hidden');
+    } else {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+    }
+}
+
+function hideSearchEmpty() {
+    const emptyEl = document.getElementById('search-empty');
+    if (emptyEl) {
+        emptyEl.classList.add('hidden');
+    }
+}
+
+function renderTrendingComments(comments = []) {
+    const listEl = document.getElementById('trending-list');
+    const emptyEl = document.getElementById('trending-empty');
+
+    if (!listEl || !emptyEl) return;
+
+    setTrendingLoading(false);
+    trendingState.isLoading = false;
+
+    listEl.innerHTML = '';
+
+    if (!Array.isArray(comments) || comments.length === 0) {
+        emptyEl.classList.remove('hidden');
+        return;
+    }
+
+    emptyEl.classList.add('hidden');
+
+    comments.forEach((comment, index) => {
+        const card = document.createElement('div');
+        card.className = 'trending-card';
+
+        const header = document.createElement('div');
+        header.className = 'trending-card-header';
+        card.appendChild(header);
+
+        const rankEl = document.createElement('div');
+        rankEl.className = 'trending-rank';
+        rankEl.textContent = `#${index + 1}`;
+        header.appendChild(rankEl);
+
+        const avatar = document.createElement('div');
+        avatar.className = 'trending-avatar';
+        if (comment?.user?.picture) {
+            const img = document.createElement('img');
+            img.src = comment.user.picture;
+            img.alt = comment.user?.name || comment.user?.email || 'User';
+            avatar.appendChild(img);
+        } else {
+            const initials = document.createElement('span');
+            initials.textContent = (comment?.user?.name || comment?.user?.email || '?')
+                .trim()
+                .charAt(0)
+                .toUpperCase();
+            avatar.appendChild(initials);
+        }
+        header.appendChild(avatar);
+
+        const info = document.createElement('div');
+        info.className = 'trending-user-info';
+        header.appendChild(info);
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'trending-user-name';
+        nameEl.textContent = comment?.user?.name || comment?.user?.email || 'Anonymous';
+        info.appendChild(nameEl);
+
+        const metaEl = document.createElement('span');
+        metaEl.className = 'trending-user-meta';
+        const host = getHostnameFromUrl(comment?.url);
+        const timeLabel = comment?.timestamp ? formatRelativeTime(new Date(comment.timestamp)) : '';
+        const metaParts = [host, timeLabel].filter(Boolean);
+        metaEl.textContent = metaParts.join(' • ');
+        info.appendChild(metaEl);
+
+        const textEl = document.createElement('div');
+        textEl.className = 'trending-card-text';
+        const commentText = comment?.text && String(comment.text).trim();
+        textEl.textContent = commentText || '(No comment text)';
+        if (!commentText) {
+            textEl.classList.add('trending-card-text--empty');
+        }
+        card.appendChild(textEl);
+
+        const stats = document.createElement('div');
+        stats.className = 'trending-card-stats';
+        const statItems = [
+            { key: 'likes', icon: '👍', value: comment?.likes || 0, label: 'Likes' },
+            { key: 'dislikes', icon: '👎', value: comment?.dislikes || 0, label: 'Dislikes' },
+            { key: 'trusts', icon: '✅', value: comment?.trusts || 0, label: 'Trusts' },
+            { key: 'distrusts', icon: '❌', value: comment?.distrusts || 0, label: 'Distrusts' },
+            { key: 'flags', icon: '🚩', value: comment?.flags || 0, label: 'Flags' },
+            { key: 'replies', icon: '💬', value: comment?.repliesCount || 0, label: 'Replies' }
+        ];
+
+        statItems.forEach(({ key, icon, value, label }) => {
+            const stat = document.createElement('span');
+            stat.className = 'trending-stat';
+            if (key && key === trendingState.metric) {
+                stat.classList.add('trending-stat--highlight');
+            }
+            stat.title = label;
+            stat.textContent = `${icon} ${value}`;
+            stats.appendChild(stat);
+        });
+
+        card.appendChild(stats);
+
+        if (comment?.url) {
+            const linkRow = document.createElement('div');
+            linkRow.className = 'trending-card-link-row';
+
+            const link = document.createElement('a');
+            link.href = comment.url;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.className = 'trending-card-link';
+            link.textContent = comment.url;
+            link.title = comment.url;
+
+            linkRow.appendChild(link);
+            card.appendChild(linkRow);
+        }
+
+        listEl.appendChild(card);
+    });
+}
+
+async function fetchTrendingComments(forceRefresh = false) {
+    const listEl = document.getElementById('trending-list');
+    if (!listEl) return;
+
+    updateTrendingDescription();
+
+    const cacheKey = `${trendingState.metric}|${trendingState.timeRange}|${trendingState.limit}`;
+    const now = Date.now();
+
+    const cachedEntry = trendingState.cache[cacheKey];
+    if (
+        !forceRefresh &&
+        cachedEntry &&
+        Array.isArray(cachedEntry.comments) &&
+        now - cachedEntry.fetchedAt < TRENDING_CACHE_DURATION
+    ) {
+        trendingState.comments = cachedEntry.comments;
+        trendingState.lastFetched = cachedEntry.fetchedAt;
+        trendingState.error = null;
+        setTrendingError('');
+        renderTrendingComments(cachedEntry.comments);
+        return;
+    }
+
+    if (trendingState.isLoading && !forceRefresh) {
+        return;
+    }
+
+    trendingState.isLoading = true;
+    setTrendingError('');
+    setTrendingLoading(true);
+
+    try {
+        const query = new URLSearchParams({
+            limit: String(trendingState.limit || 100),
+            metric: trendingState.metric,
+            timeRange: trendingState.timeRange
+        });
+
+        const response = await apiFetch(`${API_BASE_URL}/comments/trending?${query.toString()}`);
+        if (!response || response.error) {
+            throw new Error(response?.error || 'Unable to load trending comments');
+        }
+
+        if (!response.ok) {
+            let errorBody = {};
+            try {
+                errorBody = JSON.parse(response.body || '{}');
+            } catch (_) {}
+            throw new Error(errorBody?.error || `Server returned ${response.status}`);
+        }
+
+        let data = [];
+        try {
+            data = JSON.parse(response.body || '[]');
+        } catch (parseError) {
+            throw new Error('Failed to parse server response');
+        }
+
+        if (!Array.isArray(data)) {
+            data = [];
+        }
+
+        const fetchedAt = Date.now();
+        trendingState.cache[cacheKey] = {
+            comments: data,
+            fetchedAt
+        };
+
+        trendingState.comments = data;
+        trendingState.lastFetched = fetchedAt;
+        trendingState.error = null;
+
+        setTrendingError('');
+        renderTrendingComments(data);
+    } catch (error) {
+        console.error('Failed to fetch trending comments:', error);
+        const errorMessage = error?.message || 'Failed to load trending comments';
+        trendingState.error = errorMessage;
+        setTrendingError(errorMessage);
+
+        const fallbackEntry = trendingState.cache[cacheKey] || cachedEntry;
+        if (fallbackEntry && Array.isArray(fallbackEntry.comments) && fallbackEntry.comments.length) {
+            renderTrendingComments(fallbackEntry.comments);
+        } else if (trendingState.comments.length) {
+            renderTrendingComments(trendingState.comments);
+        } else {
+            renderTrendingComments([]);
+        }
+    } finally {
+        trendingState.isLoading = false;
+        setTrendingLoading(false);
     }
 }
 
@@ -3476,7 +5200,14 @@ function renderComments(comments, userEmail, currentUrl) {
                 <div class="comment-header">
                     <img src="${comment.user?.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="Profile" class="comment-avatar">
                     <div class="comment-info">
-                        <div class="comment-author">${comment.user?.name || 'Anonymous'}</div>
+                        <div class="comment-author-row">
+                            <div class="comment-author">${comment.user?.name || 'Anonymous'}</div>
+                            ${comment.user?.email && comment.user.email !== userEmail ? `
+                                <button class="follow-btn" data-user-email="${comment.user.email}" data-user-name="${comment.user.name || 'User'}" title="Follow ${comment.user.name || 'user'}">
+                                    <span class="follow-btn-text">Follow</span>
+                                </button>
+                            ` : ''}
+                        </div>
                         <div class="comment-time">${new Date(comment.timestamp).toLocaleString()}</div>
                     </div>
                 </div>
@@ -3561,7 +5292,14 @@ function renderReplies(replies, level = 1, commentId, userEmail) {
                 <div class="reply-header">
                     <img src="${reply.user?.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="Profile" class="reply-avatar">
                     <div class="reply-info">
-                        <div class="reply-author">${reply.user?.name || 'Anonymous'}</div>
+                        <div class="reply-author-row">
+                            <div class="reply-author">${reply.user?.name || 'Anonymous'}</div>
+                            ${reply.user?.email && reply.user.email !== userEmail ? `
+                                <button class="follow-btn" data-user-email="${reply.user.email}" data-user-name="${reply.user.name || 'User'}" title="Follow ${reply.user.name || 'user'}">
+                                    <span class="follow-btn-text">Follow</span>
+                                </button>
+                            ` : ''}
+                        </div>
                         <div class="reply-time">${new Date(reply.timestamp).toLocaleString()}</div>
                     </div>
                 </div>
