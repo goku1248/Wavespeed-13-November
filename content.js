@@ -35,6 +35,14 @@ const postsState = {
     cache: null
 };
 
+const notificationsState = {
+    items: [],
+    isLoading: false,
+    lastFetched: 0,
+    error: null,
+    unreadCount: 0
+};
+
 const TRENDING_CACHE_DURATION = 60 * 1000; // 1 minute cache
 
 const TRENDING_METRIC_OPTIONS = [
@@ -117,7 +125,12 @@ function createMessageBubbleElement(message, { isFromMe, isGroup, isPending, mes
     const text = escapeHtml(message?.text || '');
     const timestamp = message?.timestamp ? new Date(message.timestamp) : new Date();
     const timeLabel = formatRelativeTime(timestamp);
-    const senderName = !isFromMe && isGroup ? escapeHtml(message?.from?.name || message?.from?.email || '') : '';
+    let senderName = '';
+    if (!isFromMe && isGroup && message?.from) {
+        const name = message.from.name || message.from.email?.split('@')[0] || '';
+        const email = message.from.email || '';
+        senderName = email ? `${escapeHtml(name)} (${escapeHtml(email)})` : escapeHtml(name);
+    }
     
     bubble.innerHTML = `
         ${senderName ? `<div class="message-sender">${senderName}</div>` : ''}
@@ -302,6 +315,49 @@ function setupWebSocketListeners() {
         updateActiveUsersCount(data.activeCount);
     });
     
+    // Real-time notifications
+    socket.on('new-notification', async (data) => {
+        console.log('New notification received:', data);
+        // Load current notifications from storage
+        try {
+            const stored = await chrome.storage.local.get(['notifications', 'notificationUnreadCount']);
+            let notifications = Array.isArray(stored.notifications) ? stored.notifications : [];
+            let unreadCount = stored.notificationUnreadCount || 0;
+            
+            // Add new notification to the beginning
+            notifications.unshift(data);
+            // Keep only the most recent 100 notifications
+            if (notifications.length > 100) {
+                notifications = notifications.slice(0, 100);
+            }
+            
+            // Increment unread count
+            unreadCount = (unreadCount || 0) + 1;
+            
+            // Save to storage (this will trigger storage.onChanged in all tabs)
+            await chrome.storage.local.set({
+                notifications: notifications,
+                notificationUnreadCount: unreadCount,
+                notificationsLastUpdated: Date.now()
+            });
+            
+            // Update local state
+            notificationsState.items = notifications;
+            notificationsState.unreadCount = unreadCount;
+            
+            // Update badge count
+            updateNotificationsBadge(unreadCount);
+            
+            // If notifications section is active, refresh the list
+            const activeSection = messagesUIState.activeSection;
+            if (activeSection === 'notifications') {
+                renderNotificationsList(notifications);
+            }
+        } catch (error) {
+            console.error('Error handling new notification:', error);
+        }
+    });
+    
     // Collaborative cursors
     socket.on('user-scroll', (data) => {
         console.log('User scroll:', data);
@@ -390,6 +446,7 @@ async function createCommentsPanel() {
                         <div class="dropdown-option" data-value="most-distrusted">Most Distrusted</div>
                     </div>
                 </div>
+                <button id="refresh-comments" title="Refresh comments" style="font-size:18px; background:none; border:none; cursor:pointer; margin-left:4px; padding:4px 8px;">↻</button>
                 <button id="minimize-comments" title="Minimize" style="font-size:28px; background:none; border:none; cursor:pointer;">-</button>
                 <button id="maximize-comments" title="Maximize" style="font-size:24px; background:none; border:none; cursor:pointer; margin-left:4px;">⬜</button>
                 <button id="close-comments" title="Close" style="font-size:20px; background:none; border:none; cursor:pointer; margin-left:4px; color:#ff4444;">✕</button>
@@ -656,9 +713,493 @@ async function createCommentsPanel() {
                     </div>
                 </div>
             </div>
-            <div class="section-placeholder" data-section="notifications">Notifications coming soon</div>
-            <div class="section-placeholder" data-section="profile">Profile coming soon</div>
-            <div class="section-placeholder" data-section="settings">Settings coming soon</div>
+            <div class="section-placeholder" data-section="notifications" style="display: none;">
+                <div class="notifications-container">
+                    <div id="notifications-loading" class="notifications-loading hidden">
+                        <div class="spinner"></div>
+                        <span>Loading notifications...</span>
+                    </div>
+                    <div id="notifications-error" class="notifications-error hidden"></div>
+                    <div id="notifications-empty" class="notifications-empty hidden">
+                        <div class="notifications-empty-icon">🔔</div>
+                        <p>No notifications yet</p>
+                        <p class="notifications-empty-subtitle">You'll see notifications here when people interact with your comments and replies.</p>
+                    </div>
+                    <div id="notifications-list" class="notifications-list"></div>
+                </div>
+            </div>
+            <div class="section-placeholder" data-section="profile" style="display: none;">
+                <div class="profile-container">
+                    <div id="profile-loading" class="profile-loading hidden">
+                        <div class="spinner"></div>
+                        <span>Loading profile...</span>
+                    </div>
+                    <div id="profile-error" class="profile-error hidden"></div>
+                    <div id="profile-content" class="profile-content">
+                        <div class="profile-header">
+                            <div class="profile-avatar-container">
+                                <img id="profile-avatar" class="profile-avatar" src="" alt="Profile" />
+                                <button id="profile-edit-avatar-btn" class="profile-edit-avatar-btn hidden" title="Change profile picture">📷</button>
+                            </div>
+                            <div class="profile-info">
+                                <div class="profile-name-row">
+                                    <div id="profile-display-name" class="profile-display-name"></div>
+                                    <button id="profile-edit-btn" class="profile-edit-btn hidden" title="Edit profile">✏️</button>
+                                    <button id="profile-follow-btn" class="profile-follow-btn hidden" title="Follow">Follow</button>
+                                    <button id="profile-unfollow-btn" class="profile-unfollow-btn hidden" title="Unfollow">Unfollow</button>
+                                </div>
+                                <div id="profile-username" class="profile-username"></div>
+                                <div id="profile-bio" class="profile-bio"></div>
+                                <div id="profile-joined-date" class="profile-joined-date"></div>
+                            </div>
+                        </div>
+                        <div class="profile-stats-grid">
+                            <div class="profile-stat-item">
+                                <div class="profile-stat-value" id="profile-comments-count">-</div>
+                                <div class="profile-stat-label">Comments</div>
+                            </div>
+                            <div class="profile-stat-item">
+                                <div class="profile-stat-value" id="profile-replies-count">-</div>
+                                <div class="profile-stat-label">Replies</div>
+                            </div>
+                            <div class="profile-stat-item">
+                                <div class="profile-stat-value" id="profile-upvotes-count">-</div>
+                                <div class="profile-stat-label">Upvotes</div>
+                            </div>
+                            <div class="profile-stat-item">
+                                <div class="profile-stat-value" id="profile-downvotes-count">-</div>
+                                <div class="profile-stat-label">Downvotes</div>
+                            </div>
+                            <div class="profile-stat-item">
+                                <div class="profile-stat-value" id="profile-reputation-count">-</div>
+                                <div class="profile-stat-label">Reputation</div>
+                            </div>
+                            <div class="profile-stat-item">
+                                <div class="profile-stat-value" id="profile-followers-count">-</div>
+                                <div class="profile-stat-label">Followers</div>
+                            </div>
+                            <div class="profile-stat-item">
+                                <div class="profile-stat-value" id="profile-following-count">-</div>
+                                <div class="profile-stat-label">Following</div>
+                            </div>
+                        </div>
+                        <div class="profile-tabs">
+                            <button class="profile-tab active" data-tab="comments">Latest Comments</button>
+                            <button class="profile-tab" data-tab="replies">Latest Replies</button>
+                            <button class="profile-tab" data-tab="pages">Recent Pages</button>
+                        </div>
+                        <div class="profile-tab-content">
+                            <div id="profile-comments-tab" class="profile-tab-panel active">
+                                <div id="profile-comments-list" class="profile-list"></div>
+                                <div id="profile-comments-empty" class="profile-empty hidden">No comments yet</div>
+                            </div>
+                            <div id="profile-replies-tab" class="profile-tab-panel">
+                                <div id="profile-replies-list" class="profile-list"></div>
+                                <div id="profile-replies-empty" class="profile-empty hidden">No replies yet</div>
+                            </div>
+                            <div id="profile-pages-tab" class="profile-tab-panel">
+                                <div id="profile-pages-list" class="profile-list"></div>
+                                <div id="profile-pages-empty" class="profile-empty hidden">No pages yet</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Edit Profile Modal -->
+                <div id="profile-edit-modal" class="profile-edit-modal hidden">
+                    <div class="profile-edit-modal-content">
+                        <div class="profile-edit-modal-header">
+                            <h3>Edit Profile</h3>
+                            <button id="profile-edit-modal-close" class="profile-edit-modal-close">×</button>
+                        </div>
+                        <div class="profile-edit-modal-body">
+                            <div class="profile-edit-field">
+                                <label for="edit-display-name">Display Name</label>
+                                <input type="text" id="edit-display-name" class="profile-edit-input" placeholder="Display Name" maxlength="100" />
+                            </div>
+                            <div class="profile-edit-field">
+                                <label for="edit-username">Username/Handle</label>
+                                <input type="text" id="edit-username" class="profile-edit-input" placeholder="username" maxlength="50" />
+                                <small class="profile-edit-hint">This will be your unique handle</small>
+                            </div>
+                            <div class="profile-edit-field">
+                                <label for="edit-bio">Bio</label>
+                                <textarea id="edit-bio" class="profile-edit-textarea" placeholder="Tell us about yourself..." maxlength="500" rows="4"></textarea>
+                                <small class="profile-edit-hint"><span id="bio-char-count">0</span>/500 characters</small>
+                            </div>
+                            <div class="profile-edit-field">
+                                <label for="edit-picture-url">Profile Picture URL</label>
+                                <input type="url" id="edit-picture-url" class="profile-edit-input" placeholder="https://example.com/picture.jpg" />
+                            </div>
+                            <div id="profile-edit-error" class="profile-edit-error hidden"></div>
+                        </div>
+                        <div class="profile-edit-modal-footer">
+                            <button id="profile-edit-cancel" class="profile-edit-btn-secondary">Cancel</button>
+                            <button id="profile-edit-save" class="profile-edit-btn-primary">Save Changes</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="section-placeholder" data-section="settings">
+                <div class="settings-section" id="settings-section">
+                    <div class="settings-header">
+                        <h4>Settings</h4>
+                        <p class="settings-subtitle">Manage your extension preferences</p>
+                    </div>
+                    <div class="settings-content">
+                        <div class="settings-categories">
+                            <button class="settings-category-btn active" data-category="privacy">
+                                <span class="category-icon">🔒</span>
+                                <span class="category-name">Privacy & Security</span>
+                            </button>
+                            <button class="settings-category-btn" data-category="notifications">
+                                <span class="category-icon">🔔</span>
+                                <span class="category-name">Notifications</span>
+                            </button>
+                            <button class="settings-category-btn" data-category="appearance">
+                                <span class="category-icon">🎨</span>
+                                <span class="category-name">Appearance</span>
+                            </button>
+                            <button class="settings-category-btn" data-category="comments">
+                                <span class="category-icon">💬</span>
+                                <span class="category-name">Comments</span>
+                            </button>
+                            <button class="settings-category-btn" data-category="account">
+                                <span class="category-icon">👤</span>
+                                <span class="category-name">Account</span>
+                            </button>
+                            <button class="settings-category-btn" data-category="advanced">
+                                <span class="category-icon">⚙️</span>
+                                <span class="category-name">Advanced</span>
+                            </button>
+                        </div>
+                        <div class="settings-panels">
+                            <!-- Privacy & Security Panel -->
+                            <div class="settings-panel active" data-panel="privacy">
+                                <h5>Privacy & Security</h5>
+                                <div class="settings-group">
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Profile Visibility</label>
+                                            <p class="setting-description">Control who can see your profile information</p>
+                                        </div>
+                                        <select id="setting-profile-visibility" class="setting-select">
+                                            <option value="public">Public</option>
+                                            <option value="followers">Followers Only</option>
+                                            <option value="private">Private</option>
+                                        </select>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Who Can Message You</label>
+                                            <p class="setting-description">Control who can send you direct messages</p>
+                                        </div>
+                                        <select id="setting-message-privacy" class="setting-select">
+                                            <option value="everyone">Everyone</option>
+                                            <option value="followers">Followers Only</option>
+                                            <option value="none">No One</option>
+                                        </select>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Show Email in Profile</label>
+                                            <p class="setting-description">Display your email address on your profile</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-show-email">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Blocked Users</label>
+                                            <p class="setting-description">Manage users you've blocked</p>
+                                        </div>
+                                        <button id="settings-manage-blocked" class="setting-action-btn">Manage</button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Notifications Panel -->
+                            <div class="settings-panel" data-panel="notifications">
+                                <h5>Notifications</h5>
+                                <div class="settings-group">
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Enable Notifications</label>
+                                            <p class="setting-description">Receive browser notifications for new activity</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-notifications-enabled" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">New Comments</label>
+                                            <p class="setting-description">Get notified when someone comments on the page</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-notify-comments" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">New Replies</label>
+                                            <p class="setting-description">Get notified when someone replies to your comments</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-notify-replies" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">New Messages</label>
+                                            <p class="setting-description">Get notified when you receive direct messages</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-notify-messages" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Reactions</label>
+                                            <p class="setting-description">Get notified when someone reacts to your comments</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-notify-reactions" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">New Followers</label>
+                                            <p class="setting-description">Get notified when someone follows you</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-notify-followers" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Notification Sound</label>
+                                            <p class="setting-description">Play a sound when receiving notifications</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-notification-sound" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Appearance Panel -->
+                            <div class="settings-panel" data-panel="appearance">
+                                <h5>Appearance</h5>
+                                <div class="settings-group">
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Theme</label>
+                                            <p class="setting-description">Choose your preferred color theme</p>
+                                        </div>
+                                        <select id="setting-theme" class="setting-select">
+                                            <option value="light">Light</option>
+                                            <option value="dark">Dark</option>
+                                            <option value="auto">Auto (System)</option>
+                                        </select>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Font Size</label>
+                                            <p class="setting-description">Adjust the text size in the panel</p>
+                                        </div>
+                                        <select id="setting-font-size" class="setting-select">
+                                            <option value="small">Small</option>
+                                            <option value="medium" selected>Medium</option>
+                                            <option value="large">Large</option>
+                                        </select>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Panel Position</label>
+                                            <p class="setting-description">Remember panel position on page reload</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-remember-position" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Compact Mode</label>
+                                            <p class="setting-description">Use a more compact layout</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-compact-mode">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Comments Panel -->
+                            <div class="settings-panel" data-panel="comments">
+                                <h5>Comments & Interactions</h5>
+                                <div class="settings-group">
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Default Sort Order</label>
+                                            <p class="setting-description">How comments are sorted by default</p>
+                                        </div>
+                                        <select id="setting-default-sort" class="setting-select">
+                                            <option value="newest" selected>Newest First</option>
+                                            <option value="oldest">Oldest First</option>
+                                            <option value="most-liked">Most Liked</option>
+                                            <option value="most-disliked">Most Disliked</option>
+                                            <option value="most-trusted">Most Trusted</option>
+                                        </select>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Auto-Refresh Interval</label>
+                                            <p class="setting-description">Automatically refresh comments (in seconds, 0 to disable)</p>
+                                        </div>
+                                        <input type="number" id="setting-auto-refresh" class="setting-input" min="0" max="300" value="0" placeholder="0">
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Show Reaction Counts</label>
+                                            <p class="setting-description">Display like, dislike, and trust counts on comments</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-show-reactions" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Show Timestamps</label>
+                                            <p class="setting-description">Display when comments were posted</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-show-timestamps" checked>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Auto-Expand Replies</label>
+                                            <p class="setting-description">Automatically show replies to comments</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-auto-expand-replies">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Filter Profanity</label>
+                                            <p class="setting-description">Hide comments containing profanity</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-filter-profanity">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Account Panel -->
+                            <div class="settings-panel" data-panel="account">
+                                <h5>Account</h5>
+                                <div class="settings-group">
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Display Name</label>
+                                            <p class="setting-description">Your name as it appears to others</p>
+                                        </div>
+                                        <input type="text" id="setting-display-name" class="setting-input" placeholder="Your name">
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Email Address</label>
+                                            <p class="setting-description">Your account email (read-only)</p>
+                                        </div>
+                                        <input type="email" id="setting-email" class="setting-input" readonly>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Export Data</label>
+                                            <p class="setting-description">Download all your comments, messages, and settings</p>
+                                        </div>
+                                        <button id="settings-export-data" class="setting-action-btn">Export</button>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Clear Cache</label>
+                                            <p class="setting-description">Clear cached data to free up space</p>
+                                        </div>
+                                        <button id="settings-clear-cache" class="setting-action-btn">Clear</button>
+                                    </div>
+                                    <div class="setting-item danger">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Delete Account</label>
+                                            <p class="setting-description">Permanently delete your account and all data</p>
+                                        </div>
+                                        <button id="settings-delete-account" class="setting-action-btn danger">Delete</button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Advanced Panel -->
+                            <div class="settings-panel" data-panel="advanced">
+                                <h5>Advanced</h5>
+                                <div class="settings-group">
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Server Selection</label>
+                                            <p class="setting-description">Choose which server to connect to</p>
+                                        </div>
+                                        <select id="setting-server" class="setting-select">
+                                            <option value="auto">Auto (Recommended)</option>
+                                            <option value="local">Local Server</option>
+                                            <option value="cloud">Cloud Server</option>
+                                        </select>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Connection Timeout</label>
+                                            <p class="setting-description">Server connection timeout in seconds</p>
+                                        </div>
+                                        <input type="number" id="setting-connection-timeout" class="setting-input" min="5" max="60" value="10">
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Enable Debug Mode</label>
+                                            <p class="setting-description">Show detailed console logs for troubleshooting</p>
+                                        </div>
+                                        <label class="setting-toggle">
+                                            <input type="checkbox" id="setting-debug-mode">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <div class="setting-info">
+                                            <label class="setting-label">Reset All Settings</label>
+                                            <p class="setting-description">Restore all settings to default values</p>
+                                        </div>
+                                        <button id="settings-reset-all" class="setting-action-btn">Reset</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="comments-content">
             <div id="auth-message" class="auth-message hidden">
@@ -742,6 +1283,9 @@ async function createCommentsPanel() {
 
     // Add event listeners
     // Minimize handler is set up later (after floating icon is created) to also persist state
+    document.getElementById('refresh-comments').addEventListener('click', () => {
+        refreshComments();
+    });
     document.getElementById('close-comments').addEventListener('click', () => {
         // Remove the panel and floating icon completely
         panel.remove();
@@ -1804,6 +2348,31 @@ async function createCommentsPanel() {
                     setTimeout(() => {
                         initializeSearchHandlers();
                     }, 100);
+                } else if (sectionKey === 'notifications') {
+                    // Clear badge when opening notifications
+                    const tabsBar = document.getElementById('sections-tabs');
+                    const notificationsTab = tabsBar && tabsBar.querySelector('.section-tab[data-section="notifications"]');
+                    if (notificationsTab) {
+                        const badge = notificationsTab.querySelector('.tab-badge');
+                        if (badge) badge.remove();
+                        notificationsState.unreadCount = 0;
+                        // Save cleared badge count to storage
+                        chrome.storage.local.set({ notificationUnreadCount: 0 });
+                    }
+                    fetchNotifications(true);
+                } else if (sectionKey === 'profile') {
+                    // Ensure currentUser is loaded before fetching profile
+                    if (!currentUser) {
+                        try {
+                            const authResult = await chrome.storage.local.get(['user', 'isAuthenticated']);
+                            if (authResult.isAuthenticated && authResult.user) {
+                                currentUser = authResult.user;
+                            }
+                        } catch (e) {
+                            console.error('Failed to load user from storage:', e);
+                        }
+                    }
+                    fetchProfile(true);
                 }
             }
         }
@@ -1875,6 +2444,9 @@ async function createCommentsPanel() {
     // Initialize GIF picker functionality
     initializeGifPicker();
     
+    // Initialize notifications from storage and set up cross-tab sync
+    initializeNotificationsSync();
+    
     // Initialize vertical auto-resize for comment input
     initializeCommentInputVerticalResize();
     
@@ -1882,6 +2454,16 @@ async function createCommentsPanel() {
     setTimeout(() => {
         initializeSearchHandlers();
     }, 500);
+    
+    // Initialize profile handlers after panel is fully created
+    setTimeout(() => {
+        initializeProfileHandlers();
+    }, 600);
+    
+    // Initialize settings handlers after panel is fully created
+    setTimeout(() => {
+        initializeSettingsHandlers();
+    }, 700);
     
     // Start periodic health check monitoring (every 60 seconds)
     setInterval(async () => {
@@ -2316,11 +2898,13 @@ async function checkAuthStatus() {
                 if (userAvatarHeader && currentUser.picture) {
                     userAvatarHeader.src = currentUser.picture;
                 }
+                // Display Name instead of Google Username
                 if (userNameHeader && currentUser.name) {
                     userNameHeader.textContent = currentUser.name;
                 }
-                if (userEmailHeader && currentUser.email) {
-                    userEmailHeader.textContent = currentUser.email;
+                // Display Name instead of Gmail address
+                if (userEmailHeader && currentUser.name) {
+                    userEmailHeader.textContent = currentUser.name;
                 }
             }
             
@@ -3408,6 +3992,312 @@ async function fetchUserActivity(forceRefresh = false) {
     }
 }
 
+// Notifications functions
+function setNotificationsLoading(isLoading) {
+    const loadingEl = document.getElementById('notifications-loading');
+    if (loadingEl) {
+        if (isLoading) {
+            loadingEl.classList.remove('hidden');
+        } else {
+            loadingEl.classList.add('hidden');
+        }
+    }
+}
+
+function setNotificationsError(message = '') {
+    const errorEl = document.getElementById('notifications-error');
+    if (errorEl) {
+        if (message) {
+            errorEl.textContent = message;
+            errorEl.classList.remove('hidden');
+        } else {
+            errorEl.classList.add('hidden');
+        }
+    }
+}
+
+function setNotificationsEmpty(isEmpty) {
+    const emptyEl = document.getElementById('notifications-empty');
+    if (emptyEl) {
+        if (isEmpty) {
+            emptyEl.classList.remove('hidden');
+        } else {
+            emptyEl.classList.add('hidden');
+        }
+    }
+}
+
+function getNotificationIcon(type) {
+    const icons = {
+        'like': '👍',
+        'dislike': '👎',
+        'trust': '✅',
+        'distrust': '❌',
+        'flag': '🚩',
+        'reply': '💬'
+    };
+    return icons[type] || '🔔';
+}
+
+function getNotificationText(notification) {
+    // Try multiple ways to get the actor name
+    let actorName = notification.actorName;
+    if (!actorName && notification.actorEmail) {
+        // Try to extract from email
+        actorName = notification.actorEmail.split('@')[0];
+        // Capitalize first letter
+        actorName = actorName.charAt(0).toUpperCase() + actorName.slice(1);
+    }
+    if (!actorName) {
+        actorName = 'Someone';
+    }
+    
+    // Add email in parentheses if available
+    const actorDisplay = notification.actorEmail ? `${actorName} (${notification.actorEmail})` : actorName;
+    const targetType = notification.targetType === 'comment' ? 'comment' : 'reply';
+    
+    switch (notification.type) {
+        case 'like':
+            return `${actorDisplay} liked your ${targetType}`;
+        case 'dislike':
+            return `${actorDisplay} disliked your ${targetType}`;
+        case 'trust':
+            return `${actorDisplay} trusted your ${targetType}`;
+        case 'distrust':
+            return `${actorDisplay} mistrusted your ${targetType}`;
+        case 'flag':
+            return `${actorDisplay} reported your ${targetType}`;
+        case 'reply':
+            return `${actorDisplay} replied to your ${targetType}`;
+        default:
+            return `${actorDisplay} interacted with your ${targetType}`;
+    }
+}
+
+function renderNotificationsList(notifications = []) {
+    const listEl = document.getElementById('notifications-list');
+    const emptyEl = document.getElementById('notifications-empty');
+    if (!listEl || !emptyEl) return;
+    
+    listEl.innerHTML = '';
+    
+    if (!Array.isArray(notifications) || notifications.length === 0) {
+        setNotificationsEmpty(true);
+        return;
+    }
+    
+    setNotificationsEmpty(false);
+    
+    notifications.forEach((notification) => {
+        const card = document.createElement('div');
+        card.className = 'notification-card';
+        card.dataset.notificationId = notification.targetId;
+        card.dataset.notificationType = notification.type;
+        card.dataset.url = notification.url || '';
+        
+        const icon = getNotificationIcon(notification.type);
+        const text = getNotificationText(notification);
+        const timeLabel = notification.timestamp ? formatRelativeTime(new Date(notification.timestamp)) : '';
+        const host = getHostnameFromUrl(notification.url);
+        
+        const targetText = notification.targetText || notification.replyText || '';
+        const previewText = targetText.length > 100 ? targetText.substring(0, 100) + '...' : targetText;
+        
+        card.innerHTML = `
+            <div class="notification-icon">${icon}</div>
+            <div class="notification-content">
+                <div class="notification-text">${escapeHtml(text)}</div>
+                ${previewText ? `<div class="notification-preview">${escapeHtml(previewText)}</div>` : ''}
+                <div class="notification-meta">
+                    ${host ? `<span>${escapeHtml(host)}</span>` : ''}
+                    ${timeLabel ? `<span>${timeLabel}</span>` : ''}
+                </div>
+            </div>
+        `;
+        
+        // Make notification clickable to navigate to the comment/reply
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', () => {
+            if (notification.url) {
+                // Open the URL in a new tab or navigate to it
+                window.open(notification.url, '_blank');
+            }
+        });
+        
+        listEl.appendChild(card);
+    });
+}
+
+async function fetchNotifications(forceRefresh = false) {
+    const listEl = document.getElementById('notifications-list');
+    if (!listEl) return;
+    
+    if (!currentUser?.email) {
+        setNotificationsError('Please sign in to view notifications');
+        renderNotificationsList([]);
+        return;
+    }
+    
+    // Check if we should fetch from server or use cached storage
+    const shouldFetchFromServer = forceRefresh || !notificationsState.lastFetched || 
+        (Date.now() - notificationsState.lastFetched > 30000); // Refresh every 30 seconds
+    
+    // First, try to load from storage for instant display
+    if (!shouldFetchFromServer) {
+        try {
+            const stored = await chrome.storage.local.get(['notifications', 'notificationUnreadCount', 'notificationsLastUpdated']);
+            if (stored.notifications && Array.isArray(stored.notifications) && stored.notifications.length > 0) {
+                notificationsState.items = stored.notifications;
+                notificationsState.unreadCount = stored.notificationUnreadCount || 0;
+                updateNotificationsBadge(notificationsState.unreadCount);
+                renderNotificationsList(stored.notifications);
+                
+                // If storage data is recent (less than 5 minutes old), use it
+                if (stored.notificationsLastUpdated && (Date.now() - stored.notificationsLastUpdated < 300000)) {
+                    setNotificationsLoading(false);
+                    return;
+                }
+            }
+        } catch (error) {
+            console.error('Error loading notifications from storage:', error);
+        }
+    }
+    
+    if (notificationsState.isLoading && !forceRefresh) return;
+    
+    notificationsState.isLoading = true;
+    setNotificationsError('');
+    setNotificationsLoading(true);
+    
+    try {
+        const query = new URLSearchParams({
+            userEmail: String(currentUser.email)
+        });
+        
+        const response = await apiFetch(`${API_BASE_URL}/notifications?${query.toString()}`);
+        
+        if (!response || response.error) {
+            throw new Error(response?.error || 'Unable to load notifications');
+        }
+        
+        if (!response.ok) {
+            let body = {};
+            try { body = JSON.parse(response.body || '{}'); } catch (_) {}
+            throw new Error(body?.error || `Server returned ${response.status}`);
+        }
+        
+        let data = {};
+        try { data = JSON.parse(response.body || '{}'); } catch (_) { data = {}; }
+        
+        const notifications = Array.isArray(data.notifications) ? data.notifications : [];
+        
+        // Save to storage for sharing across tabs
+        await chrome.storage.local.set({
+            notifications: notifications,
+            notificationsLastUpdated: Date.now()
+        });
+        
+        notificationsState.items = notifications;
+        notificationsState.lastFetched = Date.now();
+        notificationsState.error = null;
+        setNotificationsError('');
+        renderNotificationsList(notifications);
+    } catch (error) {
+        console.error('Failed to fetch notifications:', error);
+        const msg = error?.message || 'Failed to load notifications';
+        notificationsState.error = msg;
+        setNotificationsError(msg);
+        
+        // Try to use stored notifications as fallback
+        try {
+            const stored = await chrome.storage.local.get(['notifications']);
+            if (stored.notifications && Array.isArray(stored.notifications) && stored.notifications.length > 0) {
+                notificationsState.items = stored.notifications;
+                renderNotificationsList(stored.notifications);
+            } else {
+                renderNotificationsList([]);
+            }
+        } catch (e) {
+            renderNotificationsList([]);
+        }
+    } finally {
+        notificationsState.isLoading = false;
+        setNotificationsLoading(false);
+    }
+}
+
+function updateNotificationsBadge(count) {
+    notificationsState.unreadCount = count;
+    const tabsBar = document.getElementById('sections-tabs');
+    const notificationsTab = tabsBar && tabsBar.querySelector('.section-tab[data-section="notifications"]');
+    if (!notificationsTab) return;
+    
+    let badge = notificationsTab.querySelector('.tab-badge');
+    if (count > 0) {
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'tab-badge';
+            notificationsTab.appendChild(badge);
+        }
+        badge.textContent = count > 99 ? '99+' : count.toString();
+    } else if (badge) {
+        badge.remove();
+    }
+}
+
+// Initialize notifications sync across all tabs
+async function initializeNotificationsSync() {
+    // Load notifications from storage on initialization
+    try {
+        const stored = await chrome.storage.local.get(['notifications', 'notificationUnreadCount']);
+        if (stored.notifications && Array.isArray(stored.notifications)) {
+            notificationsState.items = stored.notifications;
+            notificationsState.unreadCount = stored.notificationUnreadCount || 0;
+            updateNotificationsBadge(notificationsState.unreadCount);
+            
+            // If notifications section is active, render them
+            if (messagesUIState.activeSection === 'notifications') {
+                renderNotificationsList(stored.notifications);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading notifications from storage:', error);
+    }
+    
+    // Listen for storage changes to sync across all tabs
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName !== 'local') return;
+        
+        // Handle notifications updates
+        if (changes.notifications) {
+            const newNotifications = changes.notifications.newValue;
+            if (Array.isArray(newNotifications)) {
+                notificationsState.items = newNotifications;
+                
+                // Update UI if notifications section is active
+                if (messagesUIState.activeSection === 'notifications') {
+                    renderNotificationsList(newNotifications);
+                }
+            }
+        }
+        
+        // Handle unread count updates
+        if (changes.notificationUnreadCount) {
+            const newCount = changes.notificationUnreadCount.newValue || 0;
+            notificationsState.unreadCount = newCount;
+            updateNotificationsBadge(newCount);
+        }
+    });
+    
+    // Fetch notifications from server if needed (but don't block)
+    if (currentUser?.email) {
+        // Fetch in background to ensure we have the latest
+        setTimeout(() => {
+            fetchNotifications(false);
+        }, 1000);
+    }
+}
+
 // Followers and Following state
 const followersState = {
     items: [],
@@ -3576,7 +4466,7 @@ function renderFollowingList(following = []) {
         card.innerHTML = `
             <img src="${user.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="${user.name || 'User'}" class="following-avatar">
             <div class="following-info">
-                <div class="following-name">${user.name || 'Anonymous'}</div>
+                <div class="following-name">${user.name || 'Anonymous'}${user.email ? ` (${user.email})` : ''}</div>
                 <div class="following-email">${user.email || ''}</div>
                 ${user.followedAt ? `<div class="following-date">Following since ${formatRelativeTime(new Date(user.followedAt))}</div>` : ''}
             </div>
@@ -3586,6 +4476,529 @@ function renderFollowingList(following = []) {
         `;
         listEl.appendChild(card);
     });
+}
+
+// Profile state
+let profileState = {
+    isLoading: false,
+    error: null,
+    lastFetched: null
+};
+
+// Helper functions for profile UI
+function setProfileLoading(show) {
+    const loadingEl = document.getElementById('profile-loading');
+    const contentEl = document.getElementById('profile-content');
+    if (loadingEl) loadingEl.classList.toggle('hidden', !show);
+    if (contentEl) contentEl.style.display = show ? 'none' : 'block';
+}
+
+function setProfileError(msg) {
+    const errorEl = document.getElementById('profile-error');
+    if (errorEl) {
+        if (msg) {
+            errorEl.textContent = msg;
+            errorEl.classList.remove('hidden');
+        } else {
+            errorEl.classList.add('hidden');
+        }
+    }
+}
+
+// Fetch and render profile
+async function fetchProfile(forceRefresh = false, targetEmail = null) {
+    // If currentUser is not set, try to load it from storage
+    if (!currentUser) {
+        try {
+            const authResult = await chrome.storage.local.get(['user', 'isAuthenticated']);
+            if (authResult.isAuthenticated && authResult.user) {
+                currentUser = authResult.user;
+            }
+        } catch (e) {
+            console.error('Failed to load user from storage:', e);
+        }
+    }
+    
+    const profileEmail = targetEmail || currentUser?.email;
+    if (!profileEmail) {
+        setProfileError('Please sign in to view profile');
+        renderProfile(null, null, { comments: 0, replies: 0, upvotes: 0, downvotes: 0, reputation: 0, followers: 0, following: 0 });
+        return;
+    }
+    
+    if (profileState.isLoading && !forceRefresh) return;
+    profileState.isLoading = true;
+    setProfileError('');
+    setProfileLoading(true);
+    
+    try {
+        // Fetch profile data using the new profile API endpoint
+        const profileRes = await apiFetch(`${API_BASE_URL}/users/${encodeURIComponent(profileEmail)}/profile`);
+        
+        if (!profileRes || profileRes.error) {
+            throw new Error(profileRes?.error || 'Unable to load profile');
+        }
+        if (!profileRes.ok) {
+            let body = {};
+            try { body = JSON.parse(profileRes.body || '{}'); } catch (_) {}
+            throw new Error(body?.error || `Server returned ${profileRes.status}`);
+        }
+        
+        let profileData = {};
+        try {
+            profileData = JSON.parse(profileRes.body || '{}');
+        } catch (_) {
+            throw new Error('Failed to parse profile data');
+        }
+        
+        profileState.lastFetched = Date.now();
+        profileState.error = null;
+        setProfileError('');
+        
+        // Check if viewing own profile or another user's profile
+        const isOwnProfile = profileEmail === currentUser?.email;
+        
+        renderProfile(profileData.user, profileData, isOwnProfile);
+    } catch (error) {
+        console.error('Failed to fetch profile:', error);
+        const msg = error?.message || 'Failed to load profile';
+        profileState.error = msg;
+        setProfileError(msg);
+        renderProfile(null, null, { comments: 0, replies: 0, upvotes: 0, downvotes: 0, reputation: 0, followers: 0, following: 0 });
+    } finally {
+        profileState.isLoading = false;
+        setProfileLoading(false);
+    }
+}
+
+// Render profile
+function renderProfile(user, profileData = {}, isOwnProfile = true) {
+    const avatarEl = document.getElementById('profile-avatar');
+    const displayNameEl = document.getElementById('profile-display-name');
+    const usernameEl = document.getElementById('profile-username');
+    const bioEl = document.getElementById('profile-bio');
+    const joinedDateEl = document.getElementById('profile-joined-date');
+    const editBtn = document.getElementById('profile-edit-btn');
+    const editAvatarBtn = document.getElementById('profile-edit-avatar-btn');
+    const followBtn = document.getElementById('profile-follow-btn');
+    const unfollowBtn = document.getElementById('profile-unfollow-btn');
+    
+    const stats = profileData.stats || {};
+    const latestComments = profileData.latestComments || [];
+    const latestReplies = profileData.latestReplies || [];
+    const recentPages = profileData.recentPages || [];
+    
+    if (!user) {
+        if (displayNameEl) displayNameEl.textContent = 'Not signed in';
+        if (usernameEl) usernameEl.textContent = '';
+        if (bioEl) bioEl.textContent = '';
+        if (avatarEl) avatarEl.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+';
+        return;
+    }
+    
+    // Display Name
+    if (displayNameEl) {
+        displayNameEl.textContent = user.name || 'User';
+    }
+    
+    // Username with email in parentheses
+    if (usernameEl) {
+        const usernameText = user.username ? `@${user.username}` : '';
+        const emailText = user.email ? `(${user.email})` : '';
+        if (usernameText || emailText) {
+            usernameEl.textContent = `${usernameText} ${emailText}`.trim();
+        } else {
+            usernameEl.textContent = '';
+        }
+    }
+    
+    // Bio
+    if (bioEl) {
+        bioEl.textContent = user.bio || '';
+        bioEl.style.display = user.bio ? 'block' : 'none';
+    }
+    
+    // Joining date
+    if (joinedDateEl && user.createdAt) {
+        const joinDate = new Date(user.createdAt);
+        joinedDateEl.textContent = `Joined ${joinDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
+    } else if (joinedDateEl) {
+        joinedDateEl.textContent = '';
+    }
+    
+    // Avatar
+    if (avatarEl) {
+        avatarEl.src = user.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+';
+    }
+    
+    // Show/hide edit and follow buttons
+    if (isOwnProfile) {
+        if (editBtn) editBtn.classList.remove('hidden');
+        if (editAvatarBtn) editAvatarBtn.classList.remove('hidden');
+        if (followBtn) followBtn.classList.add('hidden');
+        if (unfollowBtn) unfollowBtn.classList.add('hidden');
+    } else {
+        if (editBtn) editBtn.classList.add('hidden');
+        if (editAvatarBtn) editAvatarBtn.classList.add('hidden');
+        // Show follow/unfollow buttons based on follow status
+        checkFollowStatus(user.email).then(isFollowing => {
+            if (followBtn) followBtn.classList.toggle('hidden', isFollowing);
+            if (unfollowBtn) unfollowBtn.classList.toggle('hidden', !isFollowing);
+            if (followBtn) followBtn.setAttribute('data-user-email', user.email);
+            if (unfollowBtn) unfollowBtn.setAttribute('data-user-email', user.email);
+        });
+    }
+    
+    // Stats
+    const commentsCountEl = document.getElementById('profile-comments-count');
+    const repliesCountEl = document.getElementById('profile-replies-count');
+    const upvotesCountEl = document.getElementById('profile-upvotes-count');
+    const downvotesCountEl = document.getElementById('profile-downvotes-count');
+    const reputationCountEl = document.getElementById('profile-reputation-count');
+    const followersCountEl = document.getElementById('profile-followers-count');
+    const followingCountEl = document.getElementById('profile-following-count');
+    
+    if (commentsCountEl) commentsCountEl.textContent = stats.totalComments !== undefined ? stats.totalComments : '-';
+    if (repliesCountEl) repliesCountEl.textContent = stats.totalReplies !== undefined ? stats.totalReplies : '-';
+    if (upvotesCountEl) upvotesCountEl.textContent = stats.totalUpvotes !== undefined ? stats.totalUpvotes : '-';
+    if (downvotesCountEl) downvotesCountEl.textContent = stats.totalDownvotes !== undefined ? stats.totalDownvotes : '-';
+    if (reputationCountEl) reputationCountEl.textContent = stats.reputation !== undefined ? stats.reputation : '-';
+    if (followersCountEl) followersCountEl.textContent = stats.followers !== undefined ? stats.followers : '-';
+    if (followingCountEl) followingCountEl.textContent = stats.following !== undefined ? stats.following : '-';
+    
+    // Render latest comments, replies, and pages
+    renderProfileComments(latestComments);
+    renderProfileReplies(latestReplies);
+    renderProfilePages(recentPages);
+}
+
+// Render profile comments
+function renderProfileComments(comments) {
+    const listEl = document.getElementById('profile-comments-list');
+    const emptyEl = document.getElementById('profile-comments-empty');
+    
+    if (!listEl || !emptyEl) return;
+    
+    listEl.innerHTML = '';
+    
+    if (!Array.isArray(comments) || comments.length === 0) {
+        emptyEl.classList.remove('hidden');
+        return;
+    }
+    
+    emptyEl.classList.add('hidden');
+    
+    comments.forEach(comment => {
+        const item = document.createElement('div');
+        item.className = 'profile-list-item';
+        const text = (comment.text || '').substring(0, 100);
+        const url = comment.url || '';
+        const date = comment.timestamp ? new Date(comment.timestamp).toLocaleDateString() : '';
+        item.innerHTML = `
+            <div class="profile-list-item-text">${escapeHtml(text)}${text.length >= 100 ? '...' : ''}</div>
+            ${url ? `<a href="${escapeHtml(url)}" target="_blank" class="profile-list-item-url">${escapeHtml(url)}</a>` : ''}
+            ${date ? `<div class="profile-list-item-date">${date}</div>` : ''}
+        `;
+        listEl.appendChild(item);
+    });
+}
+
+// Render profile replies
+function renderProfileReplies(replies) {
+    const listEl = document.getElementById('profile-replies-list');
+    const emptyEl = document.getElementById('profile-replies-empty');
+    
+    if (!listEl || !emptyEl) return;
+    
+    listEl.innerHTML = '';
+    
+    if (!Array.isArray(replies) || replies.length === 0) {
+        emptyEl.classList.remove('hidden');
+        return;
+    }
+    
+    emptyEl.classList.add('hidden');
+    
+    replies.forEach(reply => {
+        const item = document.createElement('div');
+        item.className = 'profile-list-item';
+        const text = (reply.text || '').substring(0, 100);
+        const url = reply.url || '';
+        const date = reply.timestamp ? new Date(reply.timestamp).toLocaleDateString() : '';
+        item.innerHTML = `
+            <div class="profile-list-item-text">${escapeHtml(text)}${text.length >= 100 ? '...' : ''}</div>
+            ${url ? `<a href="${escapeHtml(url)}" target="_blank" class="profile-list-item-url">${escapeHtml(url)}</a>` : ''}
+            ${date ? `<div class="profile-list-item-date">${date}</div>` : ''}
+        `;
+        listEl.appendChild(item);
+    });
+}
+
+// Render profile pages
+function renderProfilePages(pages) {
+    const listEl = document.getElementById('profile-pages-list');
+    const emptyEl = document.getElementById('profile-pages-empty');
+    
+    if (!listEl || !emptyEl) return;
+    
+    listEl.innerHTML = '';
+    
+    if (!Array.isArray(pages) || pages.length === 0) {
+        emptyEl.classList.remove('hidden');
+        return;
+    }
+    
+    emptyEl.classList.add('hidden');
+    
+    pages.forEach(url => {
+        const item = document.createElement('div');
+        item.className = 'profile-list-item';
+        item.innerHTML = `
+            <a href="${escapeHtml(url)}" target="_blank" class="profile-list-item-url">${escapeHtml(url)}</a>
+        `;
+        listEl.appendChild(item);
+    });
+}
+
+// Initialize profile event handlers
+function initializeProfileHandlers() {
+    // Profile tabs switching
+    const profileTabs = document.querySelectorAll('.profile-tab');
+    profileTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabName = tab.getAttribute('data-tab');
+            
+            // Update active tab
+            profileTabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            
+            // Show/hide tab panels
+            const panels = document.querySelectorAll('.profile-tab-panel');
+            panels.forEach(panel => {
+                panel.classList.remove('active');
+            });
+            
+            const targetPanel = document.getElementById(`profile-${tabName}-tab`);
+            if (targetPanel) {
+                targetPanel.classList.add('active');
+            }
+        });
+    });
+    
+    // Edit profile button
+    const editBtn = document.getElementById('profile-edit-btn');
+    const editModal = document.getElementById('profile-edit-modal');
+    const editModalClose = document.getElementById('profile-edit-modal-close');
+    const editCancel = document.getElementById('profile-edit-cancel');
+    const editSave = document.getElementById('profile-edit-save');
+    const editDisplayName = document.getElementById('edit-display-name');
+    const editUsername = document.getElementById('edit-username');
+    const editBio = document.getElementById('edit-bio');
+    const editPictureUrl = document.getElementById('edit-picture-url');
+    const bioCharCount = document.getElementById('bio-char-count');
+    const editError = document.getElementById('profile-edit-error');
+    
+    // Open edit modal
+    if (editBtn && editModal) {
+        editBtn.addEventListener('click', () => {
+            if (!currentUser?.email) return;
+            
+            // Populate form with current data
+            if (editDisplayName) editDisplayName.value = currentUser.name || '';
+            if (editUsername) editUsername.value = currentUser.username || '';
+            if (editBio) {
+                editBio.value = currentUser.bio || '';
+                if (bioCharCount) bioCharCount.textContent = (currentUser.bio || '').length;
+            }
+            if (editPictureUrl) editPictureUrl.value = currentUser.picture || '';
+            if (editError) editError.classList.add('hidden');
+            
+            editModal.classList.remove('hidden');
+        });
+    }
+    
+    // Close edit modal
+    const closeModal = () => {
+        if (editModal) editModal.classList.add('hidden');
+        if (editError) editError.classList.add('hidden');
+    };
+    
+    if (editModalClose) editModalClose.addEventListener('click', closeModal);
+    if (editCancel) editCancel.addEventListener('click', closeModal);
+    
+    // Close modal when clicking outside
+    if (editModal) {
+        editModal.addEventListener('click', (e) => {
+            if (e.target === editModal) {
+                closeModal();
+            }
+        });
+    }
+    
+    // Bio character counter
+    if (editBio && bioCharCount) {
+        editBio.addEventListener('input', () => {
+            const length = editBio.value.length;
+            bioCharCount.textContent = length;
+            if (length > 500) {
+                editBio.value = editBio.value.substring(0, 500);
+                bioCharCount.textContent = 500;
+            }
+        });
+    }
+    
+    // Save profile changes
+    if (editSave) {
+        editSave.addEventListener('click', async () => {
+            if (!currentUser?.email) return;
+            
+            const displayName = editDisplayName?.value.trim() || '';
+            const username = editUsername?.value.trim() || '';
+            const bio = editBio?.value.trim() || '';
+            const pictureUrl = editPictureUrl?.value.trim() || '';
+            
+            if (!displayName) {
+                if (editError) {
+                    editError.textContent = 'Display name is required';
+                    editError.classList.remove('hidden');
+                }
+                return;
+            }
+            
+            try {
+                // Show loading state
+                if (editSave) {
+                    editSave.disabled = true;
+                    editSave.textContent = 'Saving...';
+                }
+                
+                const response = await apiFetch(`${API_BASE_URL}/users/${encodeURIComponent(currentUser.email)}/profile`, {
+                    method: 'PUT',
+                    body: {
+                        name: displayName,
+                        username: username || undefined,
+                        bio: bio || undefined,
+                        picture: pictureUrl || undefined
+                    }
+                });
+                
+                if (!response || response.error) {
+                    throw new Error(response?.error || 'Failed to update profile');
+                }
+                
+                if (!response.ok) {
+                    let body = {};
+                    try { body = JSON.parse(response.body || '{}'); } catch (_) {}
+                    throw new Error(body?.error || `Server returned ${response.status}`);
+                }
+                
+                // Update current user in storage
+                const updatedUser = JSON.parse(response.body || '{}');
+                currentUser = { ...currentUser, ...updatedUser };
+                await chrome.storage.local.set({ user: currentUser });
+                
+                // Refresh profile
+                await fetchProfile(true);
+                
+                // Close modal
+                closeModal();
+                
+                // Show success message
+                const successMsg = document.createElement('div');
+                successMsg.className = 'profile-success-message';
+                successMsg.textContent = 'Profile updated successfully!';
+                successMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #28a745; color: white; padding: 12px 24px; border-radius: 8px; z-index: 999999; box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
+                document.body.appendChild(successMsg);
+                setTimeout(() => successMsg.remove(), 3000);
+                
+            } catch (error) {
+                console.error('Failed to update profile:', error);
+                if (editError) {
+                    editError.textContent = error?.message || 'Failed to update profile';
+                    editError.classList.remove('hidden');
+                }
+            } finally {
+                if (editSave) {
+                    editSave.disabled = false;
+                    editSave.textContent = 'Save Changes';
+                }
+            }
+        });
+    }
+    
+    // Follow/Unfollow buttons
+    const followBtn = document.getElementById('profile-follow-btn');
+    const unfollowBtn = document.getElementById('profile-unfollow-btn');
+    
+    if (followBtn) {
+        followBtn.addEventListener('click', async () => {
+            const targetEmail = followBtn.getAttribute('data-user-email');
+            if (!targetEmail) return;
+            
+            try {
+                const targetUser = await getUserInfoFromEmail(targetEmail);
+                await followUser(targetEmail, targetUser?.name || 'User');
+                
+                // Update button state
+                followBtn.classList.add('hidden');
+                if (unfollowBtn) unfollowBtn.classList.remove('hidden');
+                
+                // Refresh profile to update follower count
+                await fetchProfile(true);
+            } catch (error) {
+                console.error('Failed to follow user:', error);
+                alert(error?.message || 'Failed to follow user');
+            }
+        });
+    }
+    
+    if (unfollowBtn) {
+        unfollowBtn.addEventListener('click', async () => {
+            const targetEmail = unfollowBtn.getAttribute('data-user-email');
+            if (!targetEmail) return;
+            
+            try {
+                const targetUser = await getUserInfoFromEmail(targetEmail);
+                await unfollowUser(targetEmail, targetUser?.name || 'User');
+                
+                // Update button state
+                unfollowBtn.classList.add('hidden');
+                if (followBtn) followBtn.classList.remove('hidden');
+                
+                // Refresh profile to update follower count
+                await fetchProfile(true);
+            } catch (error) {
+                console.error('Failed to unfollow user:', error);
+                alert(error?.message || 'Failed to unfollow user');
+            }
+        });
+    }
+    
+    // Edit avatar button (opens edit modal)
+    const editAvatarBtn = document.getElementById('profile-edit-avatar-btn');
+    if (editAvatarBtn && editBtn) {
+        editAvatarBtn.addEventListener('click', () => {
+            editBtn.click();
+            // Focus on picture URL field
+            setTimeout(() => {
+                if (editPictureUrl) editPictureUrl.focus();
+            }, 100);
+        });
+    }
+}
+
+// Helper function to get user info from email
+async function getUserInfoFromEmail(email) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/users/${encodeURIComponent(email)}/profile`);
+        if (!response || !response.ok) return null;
+        
+        const data = JSON.parse(response.body || '{}');
+        return data.user || null;
+    } catch (error) {
+        console.error('Failed to get user info:', error);
+        return null;
+    }
 }
 
 // Search for users to follow
@@ -3700,7 +5113,7 @@ async function renderFollowingSearchResults(results = []) {
         card.innerHTML = `
             <img src="${user.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="${user.name || 'User'}" class="following-avatar">
             <div class="following-info">
-                <div class="following-name">${user.name || 'Anonymous'}</div>
+                <div class="following-name">${user.name || 'Anonymous'}${user.email ? ` (${user.email})` : ''}</div>
                 <div class="following-email">${user.email || ''}</div>
             </div>
             ${followButtonHtml}
@@ -4051,7 +5464,7 @@ function renderSearchResults(results = [], query = '') {
                     <div class="search-result-user">
                         <img src="${user.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="${user.name || 'User'}" class="search-result-avatar">
                         <div class="search-result-user-info">
-                            <div class="search-result-user-name">${user.name || 'Anonymous'}</div>
+                            <div class="search-result-user-name">${user.name || 'Anonymous'}${user.email ? ` (${user.email})` : ''}</div>
                             <div class="search-result-meta">
                                 ${hostname ? `<span>${hostname}</span>` : ''}
                                 ${result.timestamp ? `<span>• ${formatRelativeTime(new Date(result.timestamp))}</span>` : ''}
@@ -4091,8 +5504,8 @@ function renderSearchResults(results = [], query = '') {
                         <img src="${from.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="${from.name || 'User'}" class="search-result-avatar">
                         <div class="search-result-user-info">
                             <div class="search-result-user-name">
-                                ${from.name || 'Anonymous'}
-                                ${result.type === 'message' ? ` → ${to.name || 'User'}` : ''}
+                                ${from.name || 'Anonymous'}${from.email ? ` (${from.email})` : ''}
+                                ${result.type === 'message' ? ` → ${to.name || 'User'}${to.email ? ` (${to.email})` : ''}` : ''}
                                 ${result.type === 'group-message' ? ` (${result.groupName || 'Group'})` : ''}
                             </div>
                             <div class="search-result-meta">
@@ -5238,7 +6651,7 @@ function renderComments(comments, userEmail, currentUrl) {
                     <img src="${comment.user?.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="Profile" class="comment-avatar">
                     <div class="comment-info">
                         <div class="comment-author-row">
-                            <div class="comment-author">${comment.user?.name || 'Anonymous'}</div>
+                            <div class="comment-author">${comment.user?.name || 'Anonymous'}${comment.user?.email ? ` (${comment.user.email})` : ''}</div>
                             ${comment.user?.email && comment.user.email !== userEmail ? `
                                 <button class="follow-btn" data-user-email="${comment.user.email}" data-user-name="${comment.user.name || 'User'}" title="Follow ${comment.user.name || 'user'}">
                                     <span class="follow-btn-text">Follow</span>
@@ -5330,7 +6743,7 @@ function renderReplies(replies, level = 1, commentId, userEmail) {
                     <img src="${reply.user?.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+'}" alt="Profile" class="reply-avatar">
                     <div class="reply-info">
                         <div class="reply-author-row">
-                            <div class="reply-author">${reply.user?.name || 'Anonymous'}</div>
+                            <div class="reply-author">${reply.user?.name || 'Anonymous'}${reply.user?.email ? ` (${reply.user.email})` : ''}</div>
                             ${reply.user?.email && reply.user.email !== userEmail ? `
                                 <button class="follow-btn" data-user-email="${reply.user.email}" data-user-name="${reply.user.name || 'User'}" title="Follow ${reply.user.name || 'user'}">
                                     <span class="follow-btn-text">Follow</span>
@@ -7206,6 +8619,492 @@ function addScrollTracking() {
             }
         }, 100);
     });
+}
+
+// Initialize Settings handlers
+async function initializeSettingsHandlers() {
+    console.log('Initializing settings handlers...');
+    
+    // Default settings
+    const defaultSettings = {
+        privacy: {
+            profileVisibility: 'public',
+            messagePrivacy: 'everyone',
+            showEmail: false
+        },
+        notifications: {
+            enabled: true,
+            comments: true,
+            replies: true,
+            messages: true,
+            reactions: true,
+            followers: true,
+            sound: true
+        },
+        appearance: {
+            theme: 'light',
+            fontSize: 'medium',
+            rememberPosition: true,
+            compactMode: false
+        },
+        comments: {
+            defaultSort: 'newest',
+            autoRefresh: 0,
+            showReactions: true,
+            showTimestamps: true,
+            autoExpandReplies: false,
+            filterProfanity: false
+        },
+        account: {
+            displayName: ''
+        },
+        advanced: {
+            server: 'auto',
+            connectionTimeout: 10,
+            debugMode: false
+        }
+    };
+    
+    // Load settings from storage
+    let settings = defaultSettings;
+    try {
+        const stored = await chrome.storage.local.get(['extensionSettings']);
+        if (stored.extensionSettings) {
+            settings = { ...defaultSettings, ...stored.extensionSettings };
+        }
+    } catch (e) {
+        console.warn('Failed to load settings:', e);
+    }
+    
+    // Category switching
+    const categoryBtns = document.querySelectorAll('.settings-category-btn');
+    const panels = document.querySelectorAll('.settings-panel');
+    
+    categoryBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const category = btn.getAttribute('data-category');
+            
+            // Update active states
+            categoryBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            panels.forEach(p => p.classList.remove('active'));
+            const targetPanel = document.querySelector(`.settings-panel[data-panel="${category}"]`);
+            if (targetPanel) {
+                targetPanel.classList.add('active');
+            }
+        });
+    });
+    
+    // Load current user info for account settings
+    try {
+        const authResult = await chrome.storage.local.get(['user', 'isAuthenticated']);
+        if (authResult.isAuthenticated && authResult.user) {
+            const emailInput = document.getElementById('setting-email');
+            const displayNameInput = document.getElementById('setting-display-name');
+            if (emailInput) emailInput.value = authResult.user.email || '';
+            if (displayNameInput) {
+                displayNameInput.value = settings.account.displayName || authResult.user.name || '';
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load user info:', e);
+    }
+    
+    // Apply loaded settings to UI
+    function applySettingsToUI() {
+        // Privacy
+        const profileVisibility = document.getElementById('setting-profile-visibility');
+        const messagePrivacy = document.getElementById('setting-message-privacy');
+        const showEmail = document.getElementById('setting-show-email');
+        if (profileVisibility) profileVisibility.value = settings.privacy.profileVisibility;
+        if (messagePrivacy) messagePrivacy.value = settings.privacy.messagePrivacy;
+        if (showEmail) showEmail.checked = settings.privacy.showEmail;
+        
+        // Notifications
+        const notificationsEnabled = document.getElementById('setting-notifications-enabled');
+        const notifyComments = document.getElementById('setting-notify-comments');
+        const notifyReplies = document.getElementById('setting-notify-replies');
+        const notifyMessages = document.getElementById('setting-notify-messages');
+        const notifyReactions = document.getElementById('setting-notify-reactions');
+        const notifyFollowers = document.getElementById('setting-notify-followers');
+        const notificationSound = document.getElementById('setting-notification-sound');
+        if (notificationsEnabled) notificationsEnabled.checked = settings.notifications.enabled;
+        if (notifyComments) notifyComments.checked = settings.notifications.comments;
+        if (notifyReplies) notifyReplies.checked = settings.notifications.replies;
+        if (notifyMessages) notifyMessages.checked = settings.notifications.messages;
+        if (notifyReactions) notifyReactions.checked = settings.notifications.reactions;
+        if (notifyFollowers) notifyFollowers.checked = settings.notifications.followers;
+        if (notificationSound) notificationSound.checked = settings.notifications.sound;
+        
+        // Appearance
+        const theme = document.getElementById('setting-theme');
+        const fontSize = document.getElementById('setting-font-size');
+        const rememberPosition = document.getElementById('setting-remember-position');
+        const compactMode = document.getElementById('setting-compact-mode');
+        if (theme) theme.value = settings.appearance.theme;
+        if (fontSize) fontSize.value = settings.appearance.fontSize;
+        if (rememberPosition) rememberPosition.checked = settings.appearance.rememberPosition;
+        if (compactMode) compactMode.checked = settings.appearance.compactMode;
+        
+        // Comments
+        const defaultSort = document.getElementById('setting-default-sort');
+        const autoRefresh = document.getElementById('setting-auto-refresh');
+        const showReactions = document.getElementById('setting-show-reactions');
+        const showTimestamps = document.getElementById('setting-show-timestamps');
+        const autoExpandReplies = document.getElementById('setting-auto-expand-replies');
+        const filterProfanity = document.getElementById('setting-filter-profanity');
+        if (defaultSort) defaultSort.value = settings.comments.defaultSort;
+        if (autoRefresh) autoRefresh.value = settings.comments.autoRefresh;
+        if (showReactions) showReactions.checked = settings.comments.showReactions;
+        if (showTimestamps) showTimestamps.checked = settings.comments.showTimestamps;
+        if (autoExpandReplies) autoExpandReplies.checked = settings.comments.autoExpandReplies;
+        if (filterProfanity) filterProfanity.checked = settings.comments.filterProfanity;
+        
+        // Advanced
+        const server = document.getElementById('setting-server');
+        const connectionTimeout = document.getElementById('setting-connection-timeout');
+        const debugMode = document.getElementById('setting-debug-mode');
+        if (server) server.value = settings.advanced.server;
+        if (connectionTimeout) connectionTimeout.value = settings.advanced.connectionTimeout;
+        if (debugMode) debugMode.checked = settings.advanced.debugMode;
+    }
+    
+    // Save settings to storage
+    async function saveSettings() {
+        try {
+            await chrome.storage.local.set({ extensionSettings: settings });
+            console.log('Settings saved successfully');
+        } catch (e) {
+            console.error('Failed to save settings:', e);
+        }
+    }
+    
+    // Apply settings on load
+    applySettingsToUI();
+    
+    // Privacy settings handlers
+    const profileVisibilityEl = document.getElementById('setting-profile-visibility');
+    const messagePrivacyEl = document.getElementById('setting-message-privacy');
+    const showEmailEl = document.getElementById('setting-show-email');
+    
+    if (profileVisibilityEl) {
+        profileVisibilityEl.addEventListener('change', (e) => {
+            settings.privacy.profileVisibility = e.target.value;
+            saveSettings();
+        });
+    }
+    
+    if (messagePrivacyEl) {
+        messagePrivacyEl.addEventListener('change', (e) => {
+            settings.privacy.messagePrivacy = e.target.value;
+            saveSettings();
+        });
+    }
+    
+    if (showEmailEl) {
+        showEmailEl.addEventListener('change', (e) => {
+            settings.privacy.showEmail = e.target.checked;
+            saveSettings();
+        });
+    }
+    
+    // Notification settings handlers
+    const notificationsEnabledEl = document.getElementById('setting-notifications-enabled');
+    const notifyCommentsEl = document.getElementById('setting-notify-comments');
+    const notifyRepliesEl = document.getElementById('setting-notify-replies');
+    const notifyMessagesEl = document.getElementById('setting-notify-messages');
+    const notifyReactionsEl = document.getElementById('setting-notify-reactions');
+    const notifyFollowersEl = document.getElementById('setting-notify-followers');
+    const notificationSoundEl = document.getElementById('setting-notification-sound');
+    
+    [notificationsEnabledEl, notifyCommentsEl, notifyRepliesEl, notifyMessagesEl, 
+     notifyReactionsEl, notifyFollowersEl, notificationSoundEl].forEach(el => {
+        if (el) {
+            el.addEventListener('change', (e) => {
+                const settingKey = el.id.replace('setting-', '').replace(/-/g, '');
+                if (settingKey === 'notificationsenabled') {
+                    settings.notifications.enabled = e.target.checked;
+                } else if (settingKey === 'notifycomments') {
+                    settings.notifications.comments = e.target.checked;
+                } else if (settingKey === 'notifyreplies') {
+                    settings.notifications.replies = e.target.checked;
+                } else if (settingKey === 'notifymessages') {
+                    settings.notifications.messages = e.target.checked;
+                } else if (settingKey === 'notifyreactions') {
+                    settings.notifications.reactions = e.target.checked;
+                } else if (settingKey === 'notifyfollowers') {
+                    settings.notifications.followers = e.target.checked;
+                } else if (settingKey === 'notificationsound') {
+                    settings.notifications.sound = e.target.checked;
+                }
+                saveSettings();
+            });
+        }
+    });
+    
+    // Appearance settings handlers
+    const themeEl = document.getElementById('setting-theme');
+    const fontSizeEl = document.getElementById('setting-font-size');
+    const rememberPositionEl = document.getElementById('setting-remember-position');
+    const compactModeEl = document.getElementById('setting-compact-mode');
+    
+    if (themeEl) {
+        themeEl.addEventListener('change', (e) => {
+            settings.appearance.theme = e.target.value;
+            saveSettings();
+            // Apply theme (you can add theme switching logic here)
+            applyTheme(e.target.value);
+        });
+    }
+    
+    if (fontSizeEl) {
+        fontSizeEl.addEventListener('change', (e) => {
+            settings.appearance.fontSize = e.target.value;
+            saveSettings();
+            applyFontSize(e.target.value);
+        });
+    }
+    
+    if (rememberPositionEl) {
+        rememberPositionEl.addEventListener('change', (e) => {
+            settings.appearance.rememberPosition = e.target.checked;
+            saveSettings();
+        });
+    }
+    
+    if (compactModeEl) {
+        compactModeEl.addEventListener('change', (e) => {
+            settings.appearance.compactMode = e.target.checked;
+            saveSettings();
+            applyCompactMode(e.target.checked);
+        });
+    }
+    
+    // Comments settings handlers
+    const defaultSortEl = document.getElementById('setting-default-sort');
+    const autoRefreshEl = document.getElementById('setting-auto-refresh');
+    const showReactionsEl = document.getElementById('setting-show-reactions');
+    const showTimestampsEl = document.getElementById('setting-show-timestamps');
+    const autoExpandRepliesEl = document.getElementById('setting-auto-expand-replies');
+    const filterProfanityEl = document.getElementById('setting-filter-profanity');
+    
+    if (defaultSortEl) {
+        defaultSortEl.addEventListener('change', (e) => {
+            settings.comments.defaultSort = e.target.value;
+            saveSettings();
+            // Apply sort if on comments section
+            if (currentSortBy !== e.target.value) {
+                loadComments(e.target.value);
+            }
+        });
+    }
+    
+    if (autoRefreshEl) {
+        autoRefreshEl.addEventListener('change', (e) => {
+            const interval = parseInt(e.target.value) || 0;
+            settings.comments.autoRefresh = interval;
+            saveSettings();
+            // Clear existing interval
+            if (window.commentsAutoRefreshInterval) {
+                clearInterval(window.commentsAutoRefreshInterval);
+            }
+            // Set new interval if > 0
+            if (interval > 0) {
+                window.commentsAutoRefreshInterval = setInterval(() => {
+                    refreshComments();
+                }, interval * 1000);
+            }
+        });
+    }
+    
+    [showReactionsEl, showTimestampsEl, autoExpandRepliesEl, filterProfanityEl].forEach(el => {
+        if (el) {
+            el.addEventListener('change', (e) => {
+                const settingKey = el.id.replace('setting-', '').replace(/-/g, '');
+                if (settingKey === 'showreactions') {
+                    settings.comments.showReactions = e.target.checked;
+                } else if (settingKey === 'showtimestamps') {
+                    settings.comments.showTimestamps = e.target.checked;
+                } else if (settingKey === 'autoexpandreplies') {
+                    settings.comments.autoExpandReplies = e.target.checked;
+                } else if (settingKey === 'filterprofanity') {
+                    settings.comments.filterProfanity = e.target.checked;
+                }
+                saveSettings();
+                // Refresh comments to apply changes
+                refreshComments();
+            });
+        }
+    });
+    
+    // Account settings handlers
+    const displayNameEl = document.getElementById('setting-display-name');
+    if (displayNameEl) {
+        displayNameEl.addEventListener('blur', (e) => {
+            settings.account.displayName = e.target.value;
+            saveSettings();
+        });
+    }
+    
+    // Advanced settings handlers
+    const serverEl = document.getElementById('setting-server');
+    const connectionTimeoutEl = document.getElementById('setting-connection-timeout');
+    const debugModeEl = document.getElementById('setting-debug-mode');
+    
+    if (serverEl) {
+        serverEl.addEventListener('change', async (e) => {
+            settings.advanced.server = e.target.value;
+            saveSettings();
+            // Apply server change
+            if (e.target.value === 'local') {
+                await switchToLocalServer();
+            } else if (e.target.value === 'cloud') {
+                await switchToCloudServer();
+            } else {
+                await findWorkingServer();
+            }
+        });
+    }
+    
+    if (connectionTimeoutEl) {
+        connectionTimeoutEl.addEventListener('change', (e) => {
+            settings.advanced.connectionTimeout = parseInt(e.target.value) || 10;
+            saveSettings();
+        });
+    }
+    
+    if (debugModeEl) {
+        debugModeEl.addEventListener('change', (e) => {
+            settings.advanced.debugMode = e.target.checked;
+            saveSettings();
+        });
+    }
+    
+    // Action buttons
+    const manageBlockedBtn = document.getElementById('settings-manage-blocked');
+    const exportDataBtn = document.getElementById('settings-export-data');
+    const clearCacheBtn = document.getElementById('settings-clear-cache');
+    const deleteAccountBtn = document.getElementById('settings-delete-account');
+    const resetAllBtn = document.getElementById('settings-reset-all');
+    
+    if (manageBlockedBtn) {
+        manageBlockedBtn.addEventListener('click', () => {
+            alert('Blocked users management coming soon!');
+        });
+    }
+    
+    if (exportDataBtn) {
+        exportDataBtn.addEventListener('click', async () => {
+            try {
+                const allData = await chrome.storage.local.get(null);
+                const dataStr = JSON.stringify(allData, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `wavespeed-export-${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                alert('Data exported successfully!');
+            } catch (e) {
+                console.error('Export failed:', e);
+                alert('Failed to export data. Please try again.');
+            }
+        });
+    }
+    
+    if (clearCacheBtn) {
+        clearCacheBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to clear all cached data? This will not delete your comments or messages.')) {
+                try {
+                    await chrome.storage.local.remove(['trendingFilters', 'panelState', 'messagesLastSeenByOther']);
+                    alert('Cache cleared successfully!');
+                    location.reload();
+                } catch (e) {
+                    console.error('Clear cache failed:', e);
+                    alert('Failed to clear cache. Please try again.');
+                }
+            }
+        });
+    }
+    
+    if (deleteAccountBtn) {
+        deleteAccountBtn.addEventListener('click', async () => {
+            if (confirm('⚠️ WARNING: This will permanently delete your account and all your data. This action cannot be undone!\n\nAre you absolutely sure?')) {
+                if (confirm('This is your last chance. Delete account permanently?')) {
+                    try {
+                        // TODO: Implement account deletion API call
+                        await chrome.storage.local.clear();
+                        alert('Account deleted. The page will reload.');
+                        location.reload();
+                    } catch (e) {
+                        console.error('Delete account failed:', e);
+                        alert('Failed to delete account. Please try again.');
+                    }
+                }
+            }
+        });
+    }
+    
+    if (resetAllBtn) {
+        resetAllBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to reset all settings to default values?')) {
+                try {
+                    settings = defaultSettings;
+                    await chrome.storage.local.set({ extensionSettings: defaultSettings });
+                    applySettingsToUI();
+                    alert('All settings have been reset to default values.');
+                } catch (e) {
+                    console.error('Reset settings failed:', e);
+                    alert('Failed to reset settings. Please try again.');
+                }
+            }
+        });
+    }
+    
+    // Helper functions
+    function applyTheme(theme) {
+        const panel = document.getElementById('webpage-comments-panel');
+        if (!panel) return;
+        
+        if (theme === 'dark') {
+            panel.classList.add('dark-theme');
+        } else {
+            panel.classList.remove('dark-theme');
+        }
+    }
+    
+    function applyFontSize(size) {
+        const panel = document.getElementById('webpage-comments-panel');
+        if (!panel) return;
+        
+        panel.classList.remove('font-small', 'font-medium', 'font-large');
+        panel.classList.add(`font-${size}`);
+    }
+    
+    function applyCompactMode(enabled) {
+        const panel = document.getElementById('webpage-comments-panel');
+        if (!panel) return;
+        
+        if (enabled) {
+            panel.classList.add('compact-mode');
+        } else {
+            panel.classList.remove('compact-mode');
+        }
+    }
+    
+    // Apply initial settings
+    if (settings.appearance.theme) applyTheme(settings.appearance.theme);
+    if (settings.appearance.fontSize) applyFontSize(settings.appearance.fontSize);
+    if (settings.appearance.compactMode) applyCompactMode(settings.appearance.compactMode);
+    
+    // Set up auto-refresh if enabled
+    if (settings.comments.autoRefresh > 0) {
+        window.commentsAutoRefreshInterval = setInterval(() => {
+            refreshComments();
+        }, settings.comments.autoRefresh * 1000);
+    }
 }
 
 // Initialize WebSocket features

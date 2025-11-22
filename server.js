@@ -262,6 +262,8 @@ const Group = mongoose.model('Group', groupSchema);
 const userSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true, index: true },
     name: { type: String, required: true, index: true },
+    username: { type: String, unique: true, sparse: true, index: true }, // Handle/username
+    bio: { type: String, maxlength: 500 }, // Short bio
     picture: String,
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
@@ -986,17 +988,152 @@ app.delete('/api/groups/:groupId/members/:memberEmail', async (req, res) => {
 app.post('/api/users/register', async (req, res) => {
     try {
         if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
-        const { email, name, picture } = req.body || {};
+        const { email, name, picture, username, bio } = req.body || {};
         if (!email || !name) return res.status(400).json({ error: 'email and name are required' });
+
+        const updateData = { email, name, picture, updatedAt: new Date() };
+        if (username !== undefined) updateData.username = username;
+        if (bio !== undefined) updateData.bio = bio;
 
         const updated = await User.findOneAndUpdate(
             { email },
-            { email, name, picture, updatedAt: new Date() },
+            updateData,
             { new: true, upsert: true }
         );
         res.json(updated);
     } catch (error) {
         console.error('Error registering user:', error);
+        if (error.code === 11000) {
+            // Duplicate key error (likely username)
+            return res.status(400).json({ error: 'Username already taken' });
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update user profile
+app.put('/api/users/:email/profile', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { email } = req.params;
+        const { name, username, bio, picture } = req.body || {};
+        
+        const updateData = { updatedAt: new Date() };
+        if (name !== undefined) updateData.name = name;
+        if (username !== undefined) updateData.username = username;
+        if (bio !== undefined) updateData.bio = bio;
+        if (picture !== undefined) updateData.picture = picture;
+
+        const updated = await User.findOneAndUpdate(
+            { email },
+            updateData,
+            { new: true }
+        );
+        
+        if (!updated) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        res.json(updated);
+    } catch (error) {
+        console.error('Error updating profile:', error);
+        if (error.code === 11000) {
+            return res.status(400).json({ error: 'Username already taken' });
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get user profile with stats
+app.get('/api/users/:email/profile', async (req, res) => {
+    try {
+        if (!isConnected) return res.status(500).json({ error: 'Database connection error' });
+        const { email } = req.params;
+        
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Get user stats
+        const comments = await Comment.find({ 'user.email': email });
+        const replies = await Comment.aggregate([
+            { $unwind: '$replies' },
+            { $match: { 'replies.user.email': email } }
+        ]);
+        
+        let totalUpvotes = 0;
+        let totalDownvotes = 0;
+        
+        // Count upvotes (likes) and downvotes (dislikes)
+        for (const comment of comments) {
+            if (comment.likedBy) totalUpvotes += comment.likedBy.length;
+            if (comment.dislikedBy) totalDownvotes += comment.dislikedBy.length;
+        }
+        
+        for (const replyDoc of replies) {
+            const reply = replyDoc.replies;
+            if (reply.likedBy) totalUpvotes += reply.likedBy.length;
+            if (reply.dislikedBy) totalDownvotes += reply.dislikedBy.length;
+        }
+        
+        // Calculate reputation (upvotes - downvotes)
+        const reputation = totalUpvotes - totalDownvotes;
+        
+        // Get latest comments
+        const latestComments = await Comment.find({ 'user.email': email })
+            .sort({ timestamp: -1 })
+            .limit(5)
+            .select('text url timestamp');
+        
+        // Get latest replies
+        const latestRepliesDocs = await Comment.aggregate([
+            { $unwind: '$replies' },
+            { $match: { 'replies.user.email': email } },
+            { $sort: { 'replies.timestamp': -1 } },
+            { $limit: 5 },
+            { $project: { text: '$replies.text', url: '$url', timestamp: '$replies.timestamp' } }
+        ]);
+        
+        // Get unique pages recently commented on (using aggregation for better control)
+        const recentPagesDocs = await Comment.aggregate([
+            { $match: { 'user.email': email } },
+            { $group: { _id: '$url', lastComment: { $max: '$timestamp' } } },
+            { $sort: { lastComment: -1 } },
+            { $limit: 10 },
+            { $project: { _id: 0, url: '$_id' } }
+        ]);
+        const recentPages = recentPagesDocs.map(doc => doc.url);
+        
+        // Get followers and following counts
+        const followers = await Follow.find({ 'following.email': email });
+        const following = await Follow.find({ 'follower.email': email });
+        
+        res.json({
+            user: {
+                email: user.email,
+                name: user.name,
+                username: user.username,
+                bio: user.bio,
+                picture: user.picture,
+                createdAt: user.createdAt,
+                updatedAt: user.updatedAt
+            },
+            stats: {
+                totalComments: comments.length,
+                totalReplies: replies.length,
+                totalUpvotes,
+                totalDownvotes,
+                reputation,
+                followers: followers.length,
+                following: following.length
+            },
+            latestComments,
+            latestReplies: latestRepliesDocs,
+            recentPages
+        });
+    } catch (error) {
+        console.error('Error fetching profile:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -1605,6 +1742,37 @@ app.post('/api/comments/:commentId/replies/:parentReplyId', async (req, res) => 
         timestamp: new Date()
     });
     
+    // Emit notification to parent author (comment or reply author)
+    let parentAuthorEmail = null;
+    if (parentReplyId === 'root') {
+        // Replying to comment
+        parentAuthorEmail = comment.user?.email;
+    } else {
+        // Replying to a reply
+        parentAuthorEmail = parent.user?.email;
+    }
+    
+    if (parentAuthorEmail && parentAuthorEmail !== user.email) {
+        // Ensure we have user name and picture
+        const actorName = user.name || user.email?.split('@')[0] || 'Someone';
+        const actorPicture = user.picture || null;
+        
+        io.to(`user:${parentAuthorEmail}`).emit('new-notification', {
+            type: 'reply',
+            targetType: parentReplyId === 'root' ? 'comment' : 'reply',
+            targetId: parentReplyId === 'root' ? commentId : parentReplyId,
+            targetText: parent.text || comment.text,
+            replyId: newReply._id,
+            replyText: newReply.text,
+            commentId: commentId,
+            url: comment.url,
+            actorEmail: user.email,
+            actorName: actorName,
+            actorPicture: actorPicture,
+            timestamp: new Date()
+        });
+    }
+    
     res.json(comment);
   } catch (error) {
     console.error('Error adding reply:', error);
@@ -1761,6 +1929,31 @@ app.put('/api/comments/:commentId/reaction', async (req, res) => {
             },
             timestamp: new Date()
         });
+        
+        // Emit notification to comment author if reaction was added (not removed)
+        const wasReactionAdded = (
+            (type === 'like' && comment.likedBy.includes(userEmail)) ||
+            (type === 'dislike' && comment.dislikedBy.includes(userEmail)) ||
+            (type === 'trust' && comment.trustedBy.includes(userEmail)) ||
+            (type === 'distrust' && comment.distrustedBy.includes(userEmail)) ||
+            (type === 'flag' && comment.flaggedBy.includes(userEmail))
+        );
+        
+        if (wasReactionAdded && comment.user && comment.user.email !== userEmail) {
+            // Get actor user info
+            const actorInfo = await getUserInfo(userEmail);
+            io.to(`user:${comment.user.email}`).emit('new-notification', {
+                type,
+                targetType: 'comment',
+                targetId: commentId,
+                targetText: comment.text,
+                url: comment.url,
+                actorEmail: userEmail,
+                actorName: actorInfo.name,
+                actorPicture: actorInfo.picture,
+                timestamp: new Date()
+            });
+        }
         
         res.json(comment);
     } catch (error) {
@@ -1925,6 +2118,32 @@ app.put('/api/comments/:commentId/replies/:replyId/reaction', async (req, res) =
             },
             timestamp: new Date()
         });
+        
+        // Emit notification to reply author if reaction was added (not removed)
+        const wasReactionAdded = (
+            (type === 'like' && reply.likedBy.includes(userEmail)) ||
+            (type === 'dislike' && reply.dislikedBy.includes(userEmail)) ||
+            (type === 'trust' && reply.trustedBy.includes(userEmail)) ||
+            (type === 'distrust' && reply.distrustedBy.includes(userEmail)) ||
+            (type === 'flag' && reply.flaggedBy.includes(userEmail))
+        );
+        
+        if (wasReactionAdded && reply.user && reply.user.email !== userEmail) {
+            // Get actor user info
+            const actorInfo = await getUserInfo(userEmail);
+            io.to(`user:${reply.user.email}`).emit('new-notification', {
+                type,
+                targetType: 'reply',
+                targetId: replyId,
+                targetText: reply.text,
+                commentId: commentId,
+                url: comment.url,
+                actorEmail: userEmail,
+                actorName: actorInfo.name,
+                actorPicture: actorInfo.picture,
+                timestamp: new Date()
+            });
+        }
         
         res.json(comment);
     } catch (error) {
@@ -2149,6 +2368,440 @@ app.delete('/api/replies/:replyId', async (req, res) => {
     } catch (error) {
         console.error('Error deleting reply:', error);
         res.status(500).json({ error: 'Failed to delete reply' });
+    }
+});
+
+// Helper function to recursively find all replies by a user
+function findRepliesByUser(replies, userEmail, commentId) {
+    const userReplies = [];
+    if (!replies || !Array.isArray(replies)) return userReplies;
+    
+    replies.forEach(reply => {
+        if (reply.user && reply.user.email === userEmail) {
+            userReplies.push({
+                replyId: reply._id,
+                commentId: commentId,
+                text: reply.text,
+                timestamp: reply.timestamp
+            });
+        }
+        if (reply.replies && Array.isArray(reply.replies)) {
+            userReplies.push(...findRepliesByUser(reply.replies, userEmail, commentId));
+        }
+    });
+    
+    return userReplies;
+}
+
+// Helper function to get user info (name, picture) from User collection or comments/replies
+async function getUserInfo(email) {
+    if (!email) return { name: 'Unknown User', picture: null };
+    
+    try {
+        // First try to get from User collection
+        const user = await User.findOne({ email: email });
+        if (user) {
+            return {
+                name: user.name || email.split('@')[0],
+                picture: user.picture || null
+            };
+        }
+        
+        // If not in User collection, try to find from comments
+        const comment = await Comment.findOne({ 'user.email': email });
+        if (comment && comment.user) {
+            return {
+                name: comment.user.name || email.split('@')[0],
+                picture: comment.user.picture || null
+            };
+        }
+        
+        // If still not found, try to find from replies
+        const commentWithReply = await Comment.findOne({ 'replies.user.email': email });
+        if (commentWithReply && commentWithReply.replies) {
+            for (const reply of commentWithReply.replies) {
+                if (reply.user && reply.user.email === email) {
+                    return {
+                        name: reply.user.name || email.split('@')[0],
+                        picture: reply.user.picture || null
+                    };
+                }
+            }
+        }
+        
+        // Fallback: use email prefix as name
+        return {
+            name: email.split('@')[0],
+            picture: null
+        };
+    } catch (error) {
+        console.error('Error fetching user info:', error);
+        return {
+            name: email.split('@')[0],
+            picture: null
+        };
+    }
+}
+
+// Get notifications for a user
+app.get('/api/notifications', async (req, res) => {
+    try {
+        if (!isConnected) {
+            return res.status(500).json({ error: 'Database connection error' });
+        }
+
+        const { userEmail } = req.query;
+        if (!userEmail) {
+            return res.status(400).json({ error: 'userEmail is required' });
+        }
+
+        const notifications = [];
+        const userInfoCache = new Map(); // Cache user info to avoid repeated lookups
+
+        // Find all comments by the user
+        const userComments = await Comment.find({ 'user.email': userEmail });
+        
+        for (const comment of userComments) {
+            const commentId = comment._id.toString();
+            
+            // Check for likes on comment
+            if (comment.likedBy && comment.likedBy.length > 0) {
+                const recentLikers = comment.likedBy.filter(email => email !== userEmail).slice(-5);
+                for (const likerEmail of recentLikers) {
+                    // Get user info (with caching)
+                    if (!userInfoCache.has(likerEmail)) {
+                        userInfoCache.set(likerEmail, await getUserInfo(likerEmail));
+                    }
+                    const actorInfo = userInfoCache.get(likerEmail);
+                    
+                    notifications.push({
+                        type: 'like',
+                        targetType: 'comment',
+                        targetId: commentId,
+                        targetText: comment.text,
+                        url: comment.url,
+                        actorEmail: likerEmail,
+                        actorName: actorInfo.name,
+                        actorPicture: actorInfo.picture,
+                        timestamp: comment.timestamp,
+                        count: comment.likes || 0
+                    });
+                }
+            }
+            
+            // Check for dislikes on comment
+            if (comment.dislikedBy && comment.dislikedBy.length > 0) {
+                const recentDislikers = comment.dislikedBy.filter(email => email !== userEmail).slice(-5);
+                for (const dislikerEmail of recentDislikers) {
+                    if (!userInfoCache.has(dislikerEmail)) {
+                        userInfoCache.set(dislikerEmail, await getUserInfo(dislikerEmail));
+                    }
+                    const actorInfo = userInfoCache.get(dislikerEmail);
+                    
+                    notifications.push({
+                        type: 'dislike',
+                        targetType: 'comment',
+                        targetId: commentId,
+                        targetText: comment.text,
+                        url: comment.url,
+                        actorEmail: dislikerEmail,
+                        actorName: actorInfo.name,
+                        actorPicture: actorInfo.picture,
+                        timestamp: comment.timestamp,
+                        count: comment.dislikes || 0
+                    });
+                }
+            }
+            
+            // Check for trusts on comment
+            if (comment.trustedBy && comment.trustedBy.length > 0) {
+                const recentTrusters = comment.trustedBy.filter(email => email !== userEmail).slice(-5);
+                for (const trusterEmail of recentTrusters) {
+                    if (!userInfoCache.has(trusterEmail)) {
+                        userInfoCache.set(trusterEmail, await getUserInfo(trusterEmail));
+                    }
+                    const actorInfo = userInfoCache.get(trusterEmail);
+                    
+                    notifications.push({
+                        type: 'trust',
+                        targetType: 'comment',
+                        targetId: commentId,
+                        targetText: comment.text,
+                        url: comment.url,
+                        actorEmail: trusterEmail,
+                        actorName: actorInfo.name,
+                        actorPicture: actorInfo.picture,
+                        timestamp: comment.timestamp,
+                        count: comment.trusts || 0
+                    });
+                }
+            }
+            
+            // Check for distrusts on comment
+            if (comment.distrustedBy && comment.distrustedBy.length > 0) {
+                const recentDistrusters = comment.distrustedBy.filter(email => email !== userEmail).slice(-5);
+                for (const distrusterEmail of recentDistrusters) {
+                    if (!userInfoCache.has(distrusterEmail)) {
+                        userInfoCache.set(distrusterEmail, await getUserInfo(distrusterEmail));
+                    }
+                    const actorInfo = userInfoCache.get(distrusterEmail);
+                    
+                    notifications.push({
+                        type: 'distrust',
+                        targetType: 'comment',
+                        targetId: commentId,
+                        targetText: comment.text,
+                        url: comment.url,
+                        actorEmail: distrusterEmail,
+                        actorName: actorInfo.name,
+                        actorPicture: actorInfo.picture,
+                        timestamp: comment.timestamp,
+                        count: comment.distrusts || 0
+                    });
+                }
+            }
+            
+            // Check for flags/reports on comment
+            if (comment.flaggedBy && comment.flaggedBy.length > 0) {
+                const recentFlaggers = comment.flaggedBy.filter(email => email !== userEmail).slice(-5);
+                for (const flaggerEmail of recentFlaggers) {
+                    if (!userInfoCache.has(flaggerEmail)) {
+                        userInfoCache.set(flaggerEmail, await getUserInfo(flaggerEmail));
+                    }
+                    const actorInfo = userInfoCache.get(flaggerEmail);
+                    
+                    notifications.push({
+                        type: 'flag',
+                        targetType: 'comment',
+                        targetId: commentId,
+                        targetText: comment.text,
+                        url: comment.url,
+                        actorEmail: flaggerEmail,
+                        actorName: actorInfo.name,
+                        actorPicture: actorInfo.picture,
+                        timestamp: comment.timestamp,
+                        count: comment.flags || 0
+                    });
+                }
+            }
+            
+            // Check for replies to comment
+            if (comment.replies && Array.isArray(comment.replies)) {
+                for (const reply of comment.replies) {
+                    if (reply.user && reply.user.email !== userEmail) {
+                        notifications.push({
+                            type: 'reply',
+                            targetType: 'comment',
+                            targetId: commentId,
+                            targetText: comment.text,
+                            replyId: reply._id,
+                            replyText: reply.text,
+                            url: comment.url,
+                            actorEmail: reply.user.email,
+                            actorName: reply.user.name,
+                            actorPicture: reply.user.picture,
+                            timestamp: reply.timestamp
+                        });
+                    }
+                    
+                    // Check for reactions on replies
+                    if (reply.user && reply.user.email === userEmail) {
+                        // This is the user's reply, check for reactions
+                        if (reply.likedBy && reply.likedBy.length > 0) {
+                            const recentLikers = reply.likedBy.filter(email => email !== userEmail).slice(-5);
+                            for (const likerEmail of recentLikers) {
+                                if (!userInfoCache.has(likerEmail)) {
+                                    userInfoCache.set(likerEmail, await getUserInfo(likerEmail));
+                                }
+                                const actorInfo = userInfoCache.get(likerEmail);
+                                
+                                notifications.push({
+                                    type: 'like',
+                                    targetType: 'reply',
+                                    targetId: reply._id.toString(),
+                                    targetText: reply.text,
+                                    commentId: commentId,
+                                    url: comment.url,
+                                    actorEmail: likerEmail,
+                                    actorName: actorInfo.name,
+                                    actorPicture: actorInfo.picture,
+                                    timestamp: reply.timestamp,
+                                    count: reply.likes || 0
+                                });
+                            }
+                        }
+                        
+                        if (reply.dislikedBy && reply.dislikedBy.length > 0) {
+                            const recentDislikers = reply.dislikedBy.filter(email => email !== userEmail).slice(-5);
+                            for (const dislikerEmail of recentDislikers) {
+                                if (!userInfoCache.has(dislikerEmail)) {
+                                    userInfoCache.set(dislikerEmail, await getUserInfo(dislikerEmail));
+                                }
+                                const actorInfo = userInfoCache.get(dislikerEmail);
+                                
+                                notifications.push({
+                                    type: 'dislike',
+                                    targetType: 'reply',
+                                    targetId: reply._id.toString(),
+                                    targetText: reply.text,
+                                    commentId: commentId,
+                                    url: comment.url,
+                                    actorEmail: dislikerEmail,
+                                    actorName: actorInfo.name,
+                                    actorPicture: actorInfo.picture,
+                                    timestamp: reply.timestamp,
+                                    count: reply.dislikes || 0
+                                });
+                            }
+                        }
+                        
+                        if (reply.trustedBy && reply.trustedBy.length > 0) {
+                            const recentTrusters = reply.trustedBy.filter(email => email !== userEmail).slice(-5);
+                            for (const trusterEmail of recentTrusters) {
+                                if (!userInfoCache.has(trusterEmail)) {
+                                    userInfoCache.set(trusterEmail, await getUserInfo(trusterEmail));
+                                }
+                                const actorInfo = userInfoCache.get(trusterEmail);
+                                
+                                notifications.push({
+                                    type: 'trust',
+                                    targetType: 'reply',
+                                    targetId: reply._id.toString(),
+                                    targetText: reply.text,
+                                    commentId: commentId,
+                                    url: comment.url,
+                                    actorEmail: trusterEmail,
+                                    actorName: actorInfo.name,
+                                    actorPicture: actorInfo.picture,
+                                    timestamp: reply.timestamp,
+                                    count: reply.trusts || 0
+                                });
+                            }
+                        }
+                        
+                        if (reply.distrustedBy && reply.distrustedBy.length > 0) {
+                            const recentDistrusters = reply.distrustedBy.filter(email => email !== userEmail).slice(-5);
+                            for (const distrusterEmail of recentDistrusters) {
+                                if (!userInfoCache.has(distrusterEmail)) {
+                                    userInfoCache.set(distrusterEmail, await getUserInfo(distrusterEmail));
+                                }
+                                const actorInfo = userInfoCache.get(distrusterEmail);
+                                
+                                notifications.push({
+                                    type: 'distrust',
+                                    targetType: 'reply',
+                                    targetId: reply._id.toString(),
+                                    targetText: reply.text,
+                                    commentId: commentId,
+                                    url: comment.url,
+                                    actorEmail: distrusterEmail,
+                                    actorName: actorInfo.name,
+                                    actorPicture: actorInfo.picture,
+                                    timestamp: reply.timestamp,
+                                    count: reply.distrusts || 0
+                                });
+                            }
+                        }
+                        
+                        if (reply.flaggedBy && reply.flaggedBy.length > 0) {
+                            const recentFlaggers = reply.flaggedBy.filter(email => email !== userEmail).slice(-5);
+                            for (const flaggerEmail of recentFlaggers) {
+                                if (!userInfoCache.has(flaggerEmail)) {
+                                    userInfoCache.set(flaggerEmail, await getUserInfo(flaggerEmail));
+                                }
+                                const actorInfo = userInfoCache.get(flaggerEmail);
+                                
+                                notifications.push({
+                                    type: 'flag',
+                                    targetType: 'reply',
+                                    targetId: reply._id.toString(),
+                                    targetText: reply.text,
+                                    commentId: commentId,
+                                    url: comment.url,
+                                    actorEmail: flaggerEmail,
+                                    actorName: actorInfo.name,
+                                    actorPicture: actorInfo.picture,
+                                    timestamp: reply.timestamp,
+                                    count: reply.flags || 0
+                                });
+                            }
+                        }
+                    }
+                    
+                    // Recursively check nested replies
+                    if (reply.replies && Array.isArray(reply.replies)) {
+                        const processNestedReplies = async (nestedReplies, parentReplyId) => {
+                            for (const nestedReply of nestedReplies) {
+                                if (nestedReply.user && nestedReply.user.email !== userEmail) {
+                                    notifications.push({
+                                        type: 'reply',
+                                        targetType: 'reply',
+                                        targetId: parentReplyId,
+                                        targetText: reply.text,
+                                        replyId: nestedReply._id,
+                                        replyText: nestedReply.text,
+                                        commentId: commentId,
+                                        url: comment.url,
+                                        actorEmail: nestedReply.user.email,
+                                        actorName: nestedReply.user.name,
+                                        actorPicture: nestedReply.user.picture,
+                                        timestamp: nestedReply.timestamp
+                                    });
+                                }
+                                
+                                // Check for reactions on nested replies
+                                if (nestedReply.user && nestedReply.user.email === userEmail) {
+                                    if (nestedReply.likedBy && nestedReply.likedBy.length > 0) {
+                                        const nestedLikers = nestedReply.likedBy.filter(email => email !== userEmail);
+                                        for (const likerEmail of nestedLikers) {
+                                            if (!userInfoCache.has(likerEmail)) {
+                                                userInfoCache.set(likerEmail, await getUserInfo(likerEmail));
+                                            }
+                                            const actorInfo = userInfoCache.get(likerEmail);
+                                            
+                                            notifications.push({
+                                                type: 'like',
+                                                targetType: 'reply',
+                                                targetId: nestedReply._id.toString(),
+                                                targetText: nestedReply.text,
+                                                commentId: commentId,
+                                                url: comment.url,
+                                                actorEmail: likerEmail,
+                                                actorName: actorInfo.name,
+                                                actorPicture: actorInfo.picture,
+                                                timestamp: nestedReply.timestamp,
+                                                count: nestedReply.likes || 0
+                                            });
+                                        }
+                                    }
+                                    // Similar for other reactions (dislike, trust, distrust, flag)...
+                                }
+                                
+                                if (nestedReply.replies && Array.isArray(nestedReply.replies)) {
+                                    await processNestedReplies(nestedReply.replies, nestedReply._id);
+                                }
+                            }
+                        };
+                        await processNestedReplies(reply.replies, reply._id);
+                    }
+                }
+            }
+        }
+
+        // Sort notifications by timestamp (newest first)
+        notifications.sort((a, b) => {
+            const timeA = new Date(a.timestamp).getTime();
+            const timeB = new Date(b.timestamp).getTime();
+            return timeB - timeA;
+        });
+
+        // Limit to most recent 100 notifications
+        const limitedNotifications = notifications.slice(0, 100);
+
+        res.json({ notifications: limitedNotifications });
+    } catch (error) {
+        console.error('Error fetching notifications:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 

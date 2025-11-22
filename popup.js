@@ -26,8 +26,10 @@ async function updateUI() {
             logoutButton.classList.remove('hidden');
 
             userAvatar.src = result.user?.picture || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzE0LjIwOTEgMTIgMTYgMTAuMjA5MSAxNiA4QzE2IDUuNzkwODYgMTQuMjA5MSA0IDEyIDRDOS43OTA4NiA0IDggNS43OTA4NiA4IDhDOCAxMC4yMDkxIDkuNzkwODYgMTIgMTIgMTJaIiBmaWxsPSIjNjY2NjY2Ii8+CjxwYXRoIGQ9Ik0xMiAxNEM5LjMzIDE0IDcgMTYuMzMgNyAxOVYyMEgxN1YxOUMxNyAxNi4zMyAxNC42NyAxNCAxMiAxNFoiIGZpbGw9IiM2NjY2NjYiLz4KPC9zdmc+';
+            // Display Name instead of Google Username
             userName.textContent = result.user?.name || 'User';
-            userEmail.textContent = result.user?.email || 'No email';
+            // Display Name instead of Gmail address
+            userEmail.textContent = result.user?.name || 'No display name';
             logDebug('User is authenticated: ' + (result.user?.email || 'No email'));
         } else {
             userInfo.classList.add('hidden');
