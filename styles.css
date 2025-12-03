@@ -548,99 +548,32 @@
     font-size: 14px;
 }
 
+/* Comments list container - simple divider like YouTube */
 #comments-list {
+    margin-top: 8px;
     margin-bottom: 6px;
+    border-top: 1px solid #e5e5e5;
 }
 
+/* Each comment as a flat row with subtle bottom divider */
 .comment {
-    padding: 24px;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(250, 252, 255, 0.95) 100%);
-    border-radius: 22px;
-    margin-bottom: 20px;
-    border: 1.5px solid rgba(102, 126, 234, 0.1);
-    box-shadow: 
-        0 10px 40px rgba(0, 0, 0, 0.08),
-        0 4px 16px rgba(102, 126, 234, 0.06),
-        inset 0 1px 0 rgba(255, 255, 255, 0.8);
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 16px 0;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    background: transparent;
     position: relative;
-    overflow: hidden;
-    backdrop-filter: blur(10px);
+    overflow: visible;
+    border-bottom: 1px solid #e5e5e5;
 }
 
+.comment:last-child {
+    border-bottom: none;
+}
+
+.comment::before,
 .comment::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-
-.comment:hover {
-    box-shadow: 
-        0 16px 56px rgba(102, 126, 234, 0.18),
-        0 8px 24px rgba(118, 75, 162, 0.12),
-        inset 0 1px 0 rgba(255, 255, 255, 0.9);
-    transform: translateY(-4px) scale(1.01);
-    border-color: rgba(102, 126, 234, 0.25);
-    background: linear-gradient(135deg, rgba(255, 255, 255, 1) 0%, rgba(248, 250, 255, 0.98) 100%);
-}
-
-.comment:hover::after {
-    opacity: 1;
-}
-
-.comment::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-
-/* Slide-in animation for new comments */
-@keyframes slideInComment {
-    from {
-        opacity: 0;
-        transform: translateY(20px) scale(0.95);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-    }
-}
-
-.comment {
-    animation: slideInComment 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Pulse animation for new comments */
-@keyframes pulseGlow {
-    0% {
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 123, 255, 0.04);
-    }
-    50% {
-        box-shadow: 0 12px 48px rgba(102, 126, 234, 0.15), 0 4px 16px rgba(0, 0, 0, 0.08);
-    }
-    100% {
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 123, 255, 0.04);
-    }
-}
-
-.comment.new-comment {
-    animation: slideInComment 0.4s cubic-bezier(0.4, 0, 0.2, 1), pulseGlow 2s ease-in-out;
-}
-
-.comment:hover::before {
-    opacity: 1;
+    content: none;
 }
 
 .comment-header {
@@ -655,50 +588,16 @@
 }
 
 .comment-avatar, .reply-avatar {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
-    margin-right: 14px;
-    border: 3px solid transparent;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) padding-box,
-                linear-gradient(135deg, #667eea, #764ba2, #f093fb) border-box;
+    margin-right: 12px;
+    border: none;
+    background: transparent;
     object-fit: cover;
     flex-shrink: 0;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 
-        0 4px 16px rgba(102, 126, 234, 0.25),
-        0 2px 8px rgba(118, 75, 162, 0.15),
-        inset 0 1px 0 rgba(255, 255, 255, 0.3);
-    position: relative;
-}
-
-.comment-avatar::after, .reply-avatar::after {
-    content: '';
-    position: absolute;
-    inset: -2px;
-    border-radius: 50%;
-    padding: 2px;
-    background: linear-gradient(135deg, #667eea, #764ba2, #f093fb);
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    mask-composite: exclude;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-
-.comment:hover .comment-avatar,
-.reply:hover .reply-avatar {
-    transform: scale(1.1) rotate(3deg);
-    box-shadow: 
-        0 8px 28px rgba(102, 126, 234, 0.4),
-        0 4px 12px rgba(118, 75, 162, 0.25),
-        inset 0 1px 0 rgba(255, 255, 255, 0.4);
-}
-
-.comment:hover .comment-avatar::after,
-.reply:hover .reply-avatar::after {
-    opacity: 1;
+    box-shadow: none;
+    position: static;
 }
 
 .comment-info {
@@ -715,29 +614,22 @@
 }
 
 .comment-author {
-    font-weight: 700 !important;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    font-size: 16px;
+    font-weight: 600 !important;
+    color: #0f0f0f !important;
+    font-size: 14px;
     margin: 0;
     line-height: 1.4;
-    letter-spacing: 0.3px;
+    letter-spacing: 0;
 }
 
 .comment-time {
-    font-size: 13px;
-    color: #8e8e93 !important;
+    font-size: 12px;
+    color: #606060 !important;
     font-style: normal;
     margin: 0;
-    font-weight: 500;
-    opacity: 0.8;
-    transition: opacity 0.2s ease;
-}
-
-.comment:hover .comment-time {
+    font-weight: 400;
     opacity: 1;
+    transition: none;
 }
 
 .comment-text {
@@ -745,17 +637,15 @@
     word-wrap: break-word;
     font-size: 15px;
     line-height: 1.75;
-    margin-top: 16px;
-    padding: 18px 22px;
-    background: linear-gradient(135deg, rgba(248, 250, 255, 0.8) 0%, rgba(241, 245, 255, 0.9) 100%);
-    border-radius: 18px;
-    border: 1px solid rgba(102, 126, 234, 0.1);
+    margin-top: 8px;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+    border: none;
     text-align: left !important;
-    box-shadow: 
-        inset 0 2px 4px rgba(0, 0, 0, 0.02),
-        0 1px 2px rgba(102, 126, 234, 0.05);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
+    box-shadow: none;
+    transition: none;
+    position: static;
     font-weight: 400;
     letter-spacing: 0.01em;
     user-select: text;
@@ -765,16 +655,7 @@
 }
 
 .comment-text::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(135deg, rgba(102, 126, 234, 0.02) 0%, rgba(118, 75, 162, 0.02) 100%);
-    border-radius: 16px;
-    opacity: 0;
-    transition: opacity 0.2s ease;
+    content: none;
 }
 
 .comment:hover .comment-text::before {
@@ -786,30 +667,24 @@
     flex-direction: row;
     align-items: center;
     gap: 14px;
-    padding: 20px 24px;
-    margin-bottom: 20px;
-    border: 1.5px solid rgba(102, 126, 234, 0.12);
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(250, 252, 255, 0.96) 100%);
-    border-radius: 22px;
-    margin-left: -24px;
-    margin-right: -24px;
+    padding: 8px 0;
+    margin-bottom: 8px;
+    border: none;
+    background: transparent;
+    border-radius: 0;
+    margin-left: 0;
+    margin-right: 0;
     margin-top: 0;
     flex-shrink: 0;
-    backdrop-filter: blur(12px);
-    box-shadow: 
-        0 6px 24px rgba(102, 126, 234, 0.1),
-        0 2px 8px rgba(0, 0, 0, 0.04),
-        inset 0 1px 0 rgba(255, 255, 255, 0.7);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: none;
+    box-shadow: none;
+    transition: none;
 }
 
 .comment-input-container:focus-within {
-    border-color: rgba(102, 126, 234, 0.25);
-    box-shadow: 
-        0 8px 32px rgba(102, 126, 234, 0.15),
-        0 4px 12px rgba(118, 75, 162, 0.1),
-        inset 0 1px 0 rgba(255, 255, 255, 0.8);
-    transform: translateY(-2px);
+    border-color: transparent;
+    box-shadow: none;
+    transform: none;
 }
 
 .comment-input-container .input-wrapper {
@@ -832,23 +707,22 @@
     width: 100%;
     min-height: 52px;
     max-height: 200px;
-    padding: 14px 90px 14px 20px;
-    border: 2px solid rgba(102, 126, 234, 0.12);
-    border-radius: 20px;
+    padding: 8px 90px 8px 0;
+    border: none;
+    border-bottom: 1px solid #e5e7eb;
+    border-radius: 0;
     resize: none;
     font-family: inherit;
     color: #1e293b !important;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 255, 0.98) 100%);
-    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    background: transparent;
+    transition: none;
     font-size: 15px;
     line-height: 1.7;
     overflow-y: auto;
     position: relative;
     z-index: 1;
     box-sizing: border-box;
-    box-shadow: 
-        inset 0 2px 6px rgba(0, 0, 0, 0.02),
-        inset 0 1px 2px rgba(102, 126, 234, 0.05);
+    box-shadow: none;
     font-weight: 400;
     letter-spacing: 0.01em;
 }
@@ -860,13 +734,10 @@
 
 #comment-input:focus {
     outline: none;
-    border-color: #667eea;
-    background: #ffffff;
-    box-shadow: 
-        0 0 0 4px rgba(102, 126, 234, 0.12),
-        0 6px 20px rgba(102, 126, 234, 0.12),
-        inset 0 2px 4px rgba(0, 0, 0, 0.02);
-    transform: translateY(-1px);
+    border-color: #94a3b8;
+    background: transparent;
+    box-shadow: none;
+    transform: none;
 }
 
 #comment-input:focus::placeholder {
@@ -987,116 +858,101 @@
 
 
 
-/* Style for individual reply items - Premium Enhanced Design */
+/* Style for individual reply items - flattened to match YouTube-style comments */
 .reply {
-    margin-bottom: 16px;
-    padding: 20px 22px;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 255, 0.92) 100%);
-    border-radius: 18px;
+    margin-bottom: 0;
+    padding: 12px 0;
+    background: transparent;
+    border-radius: 0;
     position: relative;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 1.5px solid rgba(102, 126, 234, 0.08);
-    box-shadow: 
-        0 4px 16px rgba(0, 0, 0, 0.04),
-        0 2px 8px rgba(102, 126, 234, 0.05),
-        inset 0 1px 0 rgba(255, 255, 255, 0.6);
-    backdrop-filter: blur(8px);
+    transition: none;
+    border: none;
+    border-bottom: 1px solid #e5e5e5;
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
+.reply:last-child {
+    border-bottom: none;
 }
 
 .reply:hover {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 1) 0%, rgba(248, 250, 255, 0.98) 100%);
-    transform: translateX(6px) translateY(-2px);
-    box-shadow: 
-        0 8px 28px rgba(102, 126, 234, 0.15),
-        0 4px 12px rgba(118, 75, 162, 0.1),
-        inset 0 1px 0 rgba(255, 255, 255, 0.8);
-    border-color: rgba(102, 126, 234, 0.2);
+    background: transparent;
+    transform: none;
+    box-shadow: none;
+    border-color: #e5e5e5;
 }
 
-/* Enhanced vertical line with gradient - modern social media style */
+/* Simplified spacing for deeper reply levels - keep indentation only, no borders or backgrounds */
 .reply::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 4px;
-    background: linear-gradient(180deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-    border-radius: 2px;
-    opacity: 0.7;
-    transition: opacity 0.3s ease;
+    content: none;
 }
 
-.reply:hover::before {
-    opacity: 1;
-}
-
-/* Enhanced spacing and visual hierarchy for deeper levels */
 .reply[data-reply-level="1"] {
-    margin-left: 52px !important;
-    background: linear-gradient(135deg, #ffffff 0%, #f8fafe 100%);
-    border-left: 4px solid rgba(102, 126, 234, 0.3);
+    margin-left: 24px !important;
+    padding-left: 0;
+    background: transparent;
+    border-left: none;
 }
 
 .reply[data-reply-level="1"]::before {
-    background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
-    opacity: 0.8;
+    content: none;
 }
 
 .reply[data-reply-level="2"] {
-    margin-left: 104px !important;
-    background: linear-gradient(135deg, #fafbfc 0%, #f0f4ff 100%);
-    border-left: 4px solid rgba(118, 75, 162, 0.3);
+    margin-left: 48px !important;
+    padding-left: 0;
+    background: transparent;
+    border-left: none;
 }
 
 .reply[data-reply-level="2"]::before {
-    background: linear-gradient(180deg, #764ba2 0%, #f093fb 100%);
-    opacity: 0.7;
+    content: none;
 }
 
 .reply[data-reply-level="3"] {
-    margin-left: 156px !important;
-    background: linear-gradient(135deg, #ffffff 0%, #fff0f8 100%);
-    border-left: 4px solid rgba(240, 147, 251, 0.3);
+    margin-left: 72px !important;
+    padding-left: 0;
+    background: transparent;
+    border-left: none;
 }
 
 .reply[data-reply-level="3"]::before {
-    background: linear-gradient(180deg, #f093fb 0%, #667eea 100%);
-    opacity: 0.6;
+    content: none;
 }
 
 .reply[data-reply-level="4"] {
-    margin-left: 208px !important;
-    background: linear-gradient(135deg, #fafbfc 0%, #f8fafe 100%);
-    border-left: 4px solid rgba(102, 126, 234, 0.2);
+    margin-left: 96px !important;
+    padding-left: 0;
+    background: transparent;
+    border-left: none;
 }
 
 .reply[data-reply-level="4"]::before {
-    background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
-    opacity: 0.5;
+    content: none;
 }
 
-/* Continue pattern for even deeper levels */
+/* Continue pattern for even deeper levels - all flat */
 .reply[data-reply-level="5"] {
-    margin-left: 260px !important;
-    background: linear-gradient(135deg, #ffffff 0%, #f0f4ff 100%);
-    border-left: 4px solid rgba(118, 75, 162, 0.2);
+    margin-left: 120px !important;
+    padding-left: 0;
+    background: transparent;
+    border-left: none;
 }
 
 .reply[data-reply-level="5"]::before {
-    background: linear-gradient(180deg, #764ba2 0%, #f093fb 100%);
-    opacity: 0.4;
+    content: none;
 }
 
 .reply[data-reply-level="6"] {
-    margin-left: 312px !important;
-    background: linear-gradient(135deg, #fafbfc 0%, #fff0f8 100%);
-    border-left: 4px solid rgba(240, 147, 251, 0.2);
+    margin-left: 144px !important;
+    padding-left: 0;
+    background: transparent;
+    border-left: none;
 }
 
 .reply[data-reply-level="6"]::before {
-    background: linear-gradient(180deg, #f093fb 0%, #667eea 100%);
-    opacity: 0.3;
+    content: none;
 }
 
 /* Reply input and action styles */
@@ -1914,31 +1770,43 @@
 
 .reply-author {
     font-weight: 600 !important;
-    color: #1a1a1a !important;
-    font-size: 15px;
+    color: #0f0f0f !important;
+    font-size: 14px;
     margin: 0;
     line-height: 1.4;
+    letter-spacing: 0;
 }
 
 .reply-time {
     font-size: 12px;
-    color: #8e8e93 !important;
+    color: #606060 !important;
     font-style: normal;
     margin: 0;
     font-weight: 400;
+    opacity: 1;
+    transition: none;
 }
 
 .reply-text {
-    color: #000000 !important;
+    color: #0f0f0f !important;
     word-wrap: break-word;
-    font-size: 14px;
-    line-height: 1.5;
+    font-size: 15px;
+    line-height: 1.75;
     margin-top: 8px;
-    padding: 8px 12px;
-    background: #ffffff;
-    border-radius: 4px;
-    border: 1px solid #e9ecef;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+    border: none;
     text-align: left !important;
+    box-shadow: none;
+    transition: none;
+    position: static;
+    font-weight: 400;
+    letter-spacing: 0.01em;
+    user-select: text;
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
 }
 
 /* Responsive indentation - mobile styles */
@@ -2324,42 +2192,31 @@
 
 /* Action buttons styling - Premium Design */
 .action-btn {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 255, 0.98) 100%);
-    border: 1.5px solid rgba(102, 126, 234, 0.12);
-    border-radius: 14px;
-    padding: 9px 16px;
-    margin: 4px;
+    background: #ffffff;
+    border: none;
+    border-radius: 999px;
+    padding: 4px 10px;
+    margin: 0;
     cursor: pointer;
     font-size: 13px;
-    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-    min-width: 48px;
-    height: 38px;
+    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    min-width: 0;
+    height: auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 7px;
+    gap: 4px;
     white-space: nowrap;
-    font-weight: 600;
-    color: #475569;
-    box-shadow: 
-        0 2px 6px rgba(0, 0, 0, 0.04),
-        0 1px 2px rgba(102, 126, 234, 0.08);
-    backdrop-filter: blur(12px);
-    position: relative;
-    overflow: hidden;
+    font-weight: 500;
+    color: #5f6368;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+    backdrop-filter: none;
+    position: static;
+    overflow: visible;
 }
 
 .action-btn::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 0;
-    height: 0;
-    border-radius: 50%;
-    background: rgba(102, 126, 234, 0.1);
-    transform: translate(-50%, -50%);
-    transition: width 0.4s ease, height 0.4s ease;
+    content: none;
 }
 
 .action-btn:hover::before {
@@ -2374,13 +2231,54 @@
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     z-index: 1;
+    fill: #5f6368;
+    stroke: #5f6368;
 }
 
-.action-btn:hover svg {
+.action-btn:hover:not(.liked):not(.disliked):not(.trusted):not(.distrusted):not(.flagged) svg {
     transform: scale(1.15) rotate(5deg);
+    fill: #5f6368;
+    stroke: #5f6368;
 }
 
-.action-btn:hover {
+.action-btn:hover.liked svg,
+.action-btn:hover.trusted svg,
+.action-btn:hover.disliked svg,
+.action-btn:hover.distrusted svg,
+.action-btn:hover.flagged svg {
+    transform: scale(1.15) rotate(5deg);
+    fill: #ffffff;
+    stroke: #ffffff;
+}
+
+/* Trust checkmark should only use stroke on hover, no fill */
+.action-btn:hover.trusted svg path,
+.action-btn.trust-btn:hover.trusted svg path,
+.action-btn.trust-reply-btn:hover.trusted svg path {
+    fill: none !important;
+    stroke: #ffffff !important;
+}
+
+/* Distrust X icon should only use stroke on hover, no fill */
+.action-btn:hover.distrusted svg path,
+.action-btn.distrust-btn:hover.distrusted svg path,
+.action-btn.distrust-reply-btn:hover.distrusted svg path {
+    fill: none !important;
+    stroke: #ffffff !important;
+}
+
+.action-btn:hover:not(.liked):not(.disliked):not(.trusted):not(.distrusted):not(.flagged) {
+    background: #f8f9fa;
+    color: #5f6368;
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.16), 0 3px 6px rgba(0, 0, 0, 0.23);
+}
+
+.action-btn:hover.liked,
+.action-btn:hover.trusted,
+.action-btn:hover.disliked,
+.action-btn:hover.distrusted,
+.action-btn:hover.flagged {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: #ffffff;
     transform: translateY(-3px) scale(1.08);
@@ -2388,7 +2286,7 @@
         0 8px 24px rgba(102, 126, 234, 0.35),
         0 4px 12px rgba(118, 75, 162, 0.25),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    border-color: rgba(102, 126, 234, 0.5);
+    border-color: #5b21b6;
 }
 
 .action-btn:active {
@@ -2398,19 +2296,62 @@
         inset 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* Active state for liked, trusted, etc. */
+/* Active state for reactions (like, dislike, trust, distrust, report) - use unified purple accent */
 .action-btn.liked,
-.action-btn.trusted {
-    background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(22, 163, 74, 0.12) 100%);
-    border-color: rgba(34, 197, 94, 0.3);
-    color: #16a34a;
+.action-btn.trusted,
+.action-btn.disliked,
+.action-btn.distrusted,
+.action-btn.flagged {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    border-color: #5b21b6 !important;
+    color: #ffffff !important; /* purple accent used in comments UI */
 }
 
-.action-btn.disliked,
-.action-btn.distrusted {
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.12) 100%);
-    border-color: rgba(239, 68, 68, 0.3);
-    color: #dc2626;
+.action-btn.liked svg,
+.action-btn.trusted svg,
+.action-btn.disliked svg,
+.action-btn.distrusted svg,
+.action-btn.flagged svg,
+.action-btn.trust-btn.trusted svg,
+.action-btn.trust-btn.trusted {
+    fill: #ffffff !important;
+    stroke: #ffffff !important;
+    color: #ffffff !important;
+}
+
+/* Trust checkmark should only use stroke, no fill to prevent white inside */
+.action-btn.trusted svg path,
+.action-btn.trust-btn.trusted svg path,
+.action-btn.trust-reply-btn.trusted svg path {
+    fill: none !important;
+    stroke: #ffffff !important;
+}
+
+/* Distrust X icon should only use stroke, no fill to prevent white inside */
+.action-btn.distrusted svg path,
+.action-btn.distrust-btn.distrusted svg path,
+.action-btn.distrust-reply-btn.distrusted svg path {
+    fill: none !important;
+    stroke: #ffffff !important;
+}
+
+/* Ensure trust button text and icon turn white when active */
+.action-btn.trust-btn.trusted,
+.action-btn.trust-reply-btn.trusted {
+    color: #ffffff !important;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+}
+
+.action-btn.trust-btn.trusted svg,
+.action-btn.trust-reply-btn.trusted svg {
+    fill: none !important;
+    stroke: #ffffff !important;
+}
+
+/* Ensure trust checkmark paths have no fill to prevent white inside */
+.action-btn.trust-btn.trusted svg path,
+.action-btn.trust-reply-btn.trusted svg path {
+    fill: none !important;
 }
 
 /* Removed persistent state styling - buttons return to default appearance after clicking */
@@ -2419,38 +2360,29 @@
 .comment-actions, .reply-actions {
     display: flex;
     gap: 10px;
-    margin-top: 20px;
+    margin-top: 8px;
     flex-wrap: wrap;
-    padding-top: 16px;
-    border-top: 1.5px solid rgba(102, 126, 234, 0.08);
-    position: relative;
+    padding-top: 0;
+    border-top: none;
+    position: static;
+    background: #fafafa;
+    padding: 8px;
+    border-radius: 8px;
 }
 
 .comment-actions::before, .reply-actions::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, 
-        transparent 0%, 
-        rgba(102, 126, 234, 0.15) 20%,
-        rgba(118, 75, 162, 0.2) 50%,
-        rgba(102, 126, 234, 0.15) 80%,
-        transparent 100%);
-    border-radius: 1px;
+    content: none;
 }
 
 /* Replies toggle styling */
 .replies-toggle {
     cursor: pointer;
-    color: #007bff;
+    color: #2563eb;
     font-weight: 500;
-    margin: 12px 0 8px 0;
-    padding: 8px 12px;
-    background: rgba(0, 123, 255, 0.08);
-    border-radius: 8px;
+    margin: 8px 0 4px 0;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -2480,12 +2412,12 @@
 
 /* Replies collapsible content */
 .replies-collapsible-content {
-    margin-top: 8px;
-    padding: 12px;
-    background: rgba(248, 249, 250, 0.5);
-    border-radius: 8px;
-    border: 1px solid rgba(0, 123, 255, 0.1);
-    animation: slideDown 0.2s ease;
+    margin-top: 4px;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+    border: none;
+    animation: none;
 }
 
 @keyframes slideDown {

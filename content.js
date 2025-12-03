@@ -1,88 +1,26 @@
 // @ts-nocheck
-// WebSocket connection management
-let socket = null;
-let currentUser = null;
-let typingTimer = null;
-let scrollTimer = null;
+// Module aliases for backward compatibility
+// These modules are loaded before this file (see manifest.json)
+const Wavespeed = window.Wavespeed || {};
 
-// Shared messaging UI state accessible from sockets and panel logic
-const messagesUIState = {
-    activeSection: 'comments',
-    selectedConversationEmail: null,
-    selectedGroupId: null,
-    selectedGroupName: null,
-    isThreadLoading: false,
-    unreadCount: 0
-};
+// Import from modules with fallback for backward compatibility
+const Utils = Wavespeed.Utils || {};
+const Icons = Wavespeed.Icons || {};
+const Config = Wavespeed.Config || {};
+const State = Wavespeed.State || {};
+const Server = Wavespeed.Server || {};
 
-const trendingState = {
-    comments: [],
-    isLoading: false,
-    lastFetched: 0,
-    error: null,
-    metric: 'likes',
-    timeRange: 'all',
-    limit: 100,
-    cache: {}
-};
-
-const postsState = {
-    items: [],
-    isLoading: false,
-    lastFetched: 0,
-    error: null,
-    filter: 'all', // 'all' | 'comments' | 'replies' | 'messages'
-    cache: null
-};
-
-const notificationsState = {
-    items: [],
-    isLoading: false,
-    lastFetched: 0,
-    error: null,
-    unreadCount: 0
-};
-
-const TRENDING_CACHE_DURATION = 60 * 1000; // 1 minute cache
-
-const TRENDING_METRIC_OPTIONS = [
-    { value: 'likes', label: 'Likes' },
-    { value: 'dislikes', label: 'Dislikes' },
-    { value: 'trusts', label: 'Trusted' },
-    { value: 'distrusts', label: 'Mistrusted' },
-    { value: 'flags', label: 'Flagged' }
-];
-
-const TRENDING_TIME_RANGE_OPTIONS = [
-    { value: 'all', label: 'All time' },
-    { value: '24h', label: 'Last 24 hours' },
-    { value: '3d', label: 'Last 3 days' },
-    { value: '7d', label: 'Last 7 days' },
-    { value: '30d', label: 'Last 30 days' },
-    { value: '90d', label: 'Last 90 days' },
-    { value: '1y', label: 'Last 12 months' }
-];
-
-const TRENDING_METRIC_LABELS = TRENDING_METRIC_OPTIONS.reduce((acc, option) => {
-    acc[option.value] = option.label;
-    return acc;
-}, {});
-
-const TRENDING_TIME_RANGE_LABELS = TRENDING_TIME_RANGE_OPTIONS.reduce((acc, option) => {
-    acc[option.value] = option.label;
-    return acc;
-}, {});
-
-function escapeHtml(input) {
+// Create aliases for existing code compatibility
+const escapeHtml = Utils.escapeHtml || function(input) {
     return String(input ?? '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
-}
+};
 
-function formatRelativeTime(date) {
+const formatRelativeTime = Utils.formatRelativeTime || function(date) {
     if (!(date instanceof Date)) date = new Date(date);
     const diff = Date.now() - date.getTime();
     const seconds = Math.floor(diff / 1000);
@@ -94,10 +32,19 @@ function formatRelativeTime(date) {
     const days = Math.floor(hours / 24);
     if (days < 7) return `${days}d ago`;
     return date.toLocaleDateString();
-}
+};
 
-// Modern SVG Icon System
-function getSectionIcon(section, size = 20) {
+const getHostnameFromUrl = Utils.getHostnameFromUrl || function(url) {
+    if (!url) return '';
+    try {
+        const hostname = new URL(url).hostname || '';
+        return hostname.replace(/^www\./i, '');
+    } catch (error) {
+        return '';
+    }
+};
+
+const getSectionIcon = Icons.getSectionIcon || function(section, size = 20) {
     const icons = {
         'comments': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M21 11.5C21.0034 12.8199 20.6951 14.1219 20.1 15.3C19.3944 16.7118 18.3098 17.8992 16.9674 18.7293C15.6251 19.5594 14.0782 19.9994 12.5 20C11.1801 20.0035 9.87812 19.6951 8.7 19.1L3 21L4.9 15.3C4.30493 14.1219 3.99656 12.8199 4 11.5C4.00061 9.92179 4.44061 8.37488 5.27072 7.03258C6.10083 5.69028 7.28825 4.6056 8.7 3.90003C9.87812 3.30496 11.1801 2.99659 12.5 3.00003H13C15.0843 3.11502 17.053 3.99479 18.5291 5.47089C20.0052 6.94699 20.885 8.91568 21 11V11.5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -150,7 +97,59 @@ function getSectionIcon(section, size = 20) {
 }
 
 // Modern Action Icon System for Comment Buttons
-function getActionIcon(action, size = 16) {
+// Use state from State module (with backward compatibility)
+// Reference State module objects directly so changes persist
+const messagesUIState = State.messagesUI ? State.messagesUI : {
+    activeSection: 'comments',
+    selectedConversationEmail: null,
+    selectedGroupId: null,
+    selectedGroupName: null,
+    isThreadLoading: false,
+    unreadCount: 0
+};
+
+const trendingState = State.trending ? State.trending : {
+    comments: [],
+    isLoading: false,
+    lastFetched: 0,
+    error: null,
+    metric: 'likes',
+    timeRange: 'all',
+    limit: 100,
+    cache: {}
+};
+
+const postsState = State.posts ? State.posts : {
+    items: [],
+    isLoading: false,
+    lastFetched: 0,
+    error: null,
+    filter: 'all',
+    cache: null
+};
+
+const notificationsState = State.notifications ? State.notifications : {
+    items: [],
+    isLoading: false,
+    lastFetched: 0,
+    error: null,
+    unreadCount: 0
+};
+
+// Use config from modules (with backward compatibility)
+const TRENDING_CACHE_DURATION = Config.TRENDING_CACHE_DURATION || 60 * 1000;
+const TRENDING_METRIC_OPTIONS = Config.TRENDING_METRIC_OPTIONS || [];
+const TRENDING_TIME_RANGE_OPTIONS = Config.TRENDING_TIME_RANGE_OPTIONS || [];
+const TRENDING_METRIC_LABELS = Config.TRENDING_METRIC_LABELS || {};
+const TRENDING_TIME_RANGE_LABELS = Config.TRENDING_TIME_RANGE_LABELS || {};
+
+// Global state variables (use from State module)
+let socket = State.socket;
+let currentUser = State.currentUser;
+let typingTimer = State.typingTimer;
+let scrollTimer = State.scrollTimer;
+
+const getActionIcon = Icons.getActionIcon || function(action, size = 16) {
     const icons = {
         'reply': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M21 11.5C21.0034 12.8199 20.6951 14.1219 20.1 15.3C19.3944 16.7118 18.3098 17.8992 16.9674 18.7293C15.6251 19.5594 14.0782 19.9994 12.5 20C11.1801 20.0035 9.87812 19.6951 8.7 19.1L3 21L4.9 15.3C4.30493 14.1219 3.99656 12.8199 4 11.5C4.00061 9.92179 4.44061 8.37488 5.27072 7.03258C6.10083 5.69028 7.28825 4.6056 8.7 3.90003C9.87812 3.30496 11.1801 2.99659 12.5 3.00003H13C15.0843 3.11502 17.053 3.99479 18.5291 5.47089C20.0052 6.94699 20.885 8.91568 21 11V11.5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -162,11 +161,10 @@ function getActionIcon(action, size = 16) {
             <path d="M17 14V4L8 4C7.46957 4 6.96086 4.21071 6.58579 4.58579C6.21071 4.96086 6 5.46957 6 6V10.8C6 11.1164 6.02588 11.4315 6.077 11.7419L6.707 15.04C6.83688 15.59 7.24437 16 7.8 16H12M17 14L12 16V20C12 20.5304 12.2107 21.0391 12.5858 21.4142C12.9609 21.7893 13.4696 22 14 22H15C15.5304 22 16.0391 21.7893 16.4142 21.4142C16.7893 21.0391 17 20.5304 17 20V14ZM17 14H20C20.5304 14 21.0391 13.7893 21.4142 13.4142C21.7893 13.0391 22 12.5304 22 12V6C22 5.46957 21.7893 4.96086 21.4142 4.58579C21.0391 4.21071 20.5304 4 20 4H17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>`,
         'trust': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2L15.09 8.26L22 9L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9L8.91 8.26L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="currentColor"/>
+            <path d="M5 13L9 17L19 7" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="miter" fill="none"/>
         </svg>`,
         'distrust': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
-            <path d="M15 9L9 15M9 9L15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="miter" fill="none"/>
         </svg>`,
         'flag': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M4 15S6 13 8 13S12 15 14 15S18 13 20 13V3S18 5 16 5S12 3 10 3S6 5 4 5V15Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -206,16 +204,6 @@ function updateTrendingDescription() {
     const rangeLabel = TRENDING_TIME_RANGE_LABELS[trendingState.timeRange] || TRENDING_TIME_RANGE_LABELS.all;
 
     descriptionEl.textContent = `Top ${trendingState.limit} comments by ${metricLabel.toLowerCase()} • ${rangeLabel}`;
-}
-
-function getHostnameFromUrl(url) {
-    if (!url) return '';
-    try {
-        const hostname = new URL(url).hostname || '';
-        return hostname.replace(/^www\./i, '');
-    } catch (error) {
-        return '';
-    }
 }
 
 function createMessageBubbleElement(message, { isFromMe, isGroup, isPending, messageId } = {}) {
@@ -329,6 +317,12 @@ function updateMessagesBadge(unreadCount) {
 function initializeWebSocket() {
     if (socket) {
         socket.disconnect();
+    }
+    
+    // Ensure SERVER_BASE_URL is set
+    if (!SERVER_BASE_URL) {
+        SERVER_BASE_URL = State.SERVER_BASE_URL || SERVERS.local.base;
+        updateServerVars();
     }
     
     // Load Socket.IO client library from current server
@@ -504,17 +498,36 @@ function setupWebSocketListeners() {
 // Create and inject the comments panel
 async function createCommentsPanel() {
     console.log('Creating comments panel...');
+    
+    // Ensure getSectionIcon is available
+    if (typeof getSectionIcon !== 'function') {
+        console.error('getSectionIcon is not available!');
+        // Use a simple fallback
+        window.getSectionIcon = function() { return ''; };
+    }
+    
+    // Ensure getActionIcon is available
+    if (typeof getActionIcon !== 'function') {
+        console.error('getActionIcon is not available!');
+        // Use a simple fallback
+        window.getActionIcon = function() { return ''; };
+    }
+    
     // Read persisted state before creating the panel to avoid flicker
     let initialIsMinimized = false;
     try {
         const result = await chrome.storage.local.get(['panelState']);
         initialIsMinimized = !!(result.panelState && result.panelState.isMinimized);
     } catch (e) {
+        console.warn('Failed to read panel state:', e);
         initialIsMinimized = false;
     }
-    const panel = document.createElement('div');
-    panel.id = 'webpage-comments-panel';
-    panel.innerHTML = `
+    
+    let panel;
+    try {
+        panel = document.createElement('div');
+        panel.id = 'webpage-comments-panel';
+        panel.innerHTML = `
         <div id="comments-resizer"></div>
         <div id="comments-right-resizer"></div>
         <div id="comments-top-left-resizer"></div>
@@ -2582,6 +2595,7 @@ async function createCommentsPanel() {
             currentServer = 'cloud';
             API_BASE_URL = SERVERS.cloud.api;
             SERVER_BASE_URL = SERVERS.cloud.base;
+            updateServerVars(); // Sync to State module
             await chrome.storage.local.set({ activeServer: 'cloud' });
             updateServerStatusIndicator();
         } else {
@@ -2760,6 +2774,15 @@ async function createCommentsPanel() {
             });
         }
     }, 100);
+    } catch (error) {
+        console.error('Error creating comments panel:', error);
+        // Show a simple error message to the user
+        const errorPanel = document.createElement('div');
+        errorPanel.id = 'webpage-comments-panel';
+        errorPanel.style.cssText = 'position: fixed; top: 20px; right: 20px; width: 300px; padding: 20px; background: white; border: 1px solid #ccc; border-radius: 8px; z-index: 2147483647;';
+        errorPanel.innerHTML = '<h3>Error Loading Comments Panel</h3><p>Please refresh the page. If the problem persists, check the browser console for details.</p><p style="font-size: 12px; color: #666;">Error: ' + (error.message || String(error)) + '</p>';
+        document.body.appendChild(errorPanel);
+    }
 }
 
 function addPanelResizer(panel) {
@@ -3476,10 +3499,9 @@ function createComment({text, user, timestamp}) {
     };
 }
 
-// Dual-server configuration with automatic fallback
-const CLOUD_SERVER_ENABLED = false;
-
-const SERVERS = {
+// Use server config and state from modules
+const CLOUD_SERVER_ENABLED = Config.CLOUD_SERVER_ENABLED !== undefined ? Config.CLOUD_SERVER_ENABLED : false;
+const SERVERS = Config.SERVERS || {
     local: {
         api: 'http://localhost:3001/api',
         base: 'http://localhost:3001',
@@ -3492,13 +3514,20 @@ const SERVERS = {
     }
 };
 
-// Current active server (prefer local for development)
-let currentServer = 'local';
-let API_BASE_URL = SERVERS.local.api;
-let SERVER_BASE_URL = SERVERS.local.base;
+// Initialize server variables from State module with fallbacks
+let currentServer = State.currentServer || 'local';
+let API_BASE_URL = State.API_BASE_URL || SERVERS.local.api;
+let SERVER_BASE_URL = State.SERVER_BASE_URL || SERVERS.local.base;
 
-// Server health check with actual fetch (bypassing apiFetch to avoid circular dependency)
-async function checkServerHealth(serverKey) {
+// Sync changes back to State module
+const updateServerVars = () => {
+    if (State.currentServer !== undefined) State.currentServer = currentServer;
+    if (State.API_BASE_URL !== undefined) State.API_BASE_URL = API_BASE_URL;
+    if (State.SERVER_BASE_URL !== undefined) State.SERVER_BASE_URL = SERVER_BASE_URL;
+};
+
+// Use server functions from Server module (with backward compatibility)
+const checkServerHealth = Server.checkServerHealth || async function(serverKey) {
     if (serverKey === 'cloud' && !CLOUD_SERVER_ENABLED) {
         console.log('☁️ Cloud server disabled; skipping health check.');
         return false;
@@ -3527,10 +3556,9 @@ async function checkServerHealth(serverKey) {
         console.log(`❌ ${server.name} health check failed:`, error.message);
         return false;
     }
-}
+};
 
-// Update server status indicator UI
-function updateServerStatusIndicator() {
+const updateServerStatusIndicator = Server.updateServerStatusIndicator || function() {
     const indicator = document.getElementById('server-status-indicator');
     if (!indicator) return;
     
@@ -3546,71 +3574,88 @@ function updateServerStatusIndicator() {
         if (text) text.textContent = 'Cloud';
         indicator.title = 'Connected to Cloud Server';
     }
-}
+};
 
-// Try to find a working server
-async function findWorkingServer() {
-    // Try local first
-    console.log('🔍 Checking local server...');
-    if (await checkServerHealth('local')) {
-        currentServer = 'local';
-        API_BASE_URL = SERVERS.local.api;
-        SERVER_BASE_URL = SERVERS.local.base;
-        console.log(`✅ Using ${SERVERS.local.name}`);
-        await chrome.storage.local.set({ activeServer: 'local' });
-        updateServerStatusIndicator();
-        return true;
-    }
-    
-    // Fallback to cloud
-    if (!CLOUD_SERVER_ENABLED) {
-        console.warn('☁️ Cloud server fallback disabled. No other servers available.');
-        return false;
-    }
-    console.log('🔍 Checking cloud server...');
-    if (await checkServerHealth('cloud')) {
-        currentServer = 'cloud';
-        API_BASE_URL = SERVERS.cloud.api;
-        SERVER_BASE_URL = SERVERS.cloud.base;
-        console.log(`✅ Using ${SERVERS.cloud.name}`);
-        await chrome.storage.local.set({ activeServer: 'cloud' });
-        updateServerStatusIndicator();
-        return true;
-    }
-    
-    console.log('❌ No servers available');
-    return false;
-}
-
-// Initialize server on load - verify server is actually available
-(async () => {
-    try {
-        // Check stored preference
-        const stored = await chrome.storage.local.get(['activeServer']);
-        if (stored.activeServer && SERVERS[stored.activeServer]) {
-            currentServer = (!CLOUD_SERVER_ENABLED && stored.activeServer === 'cloud') ? 'local' : stored.activeServer;
-            API_BASE_URL = SERVERS[currentServer].api;
-            SERVER_BASE_URL = SERVERS[currentServer].base;
-            
-            // Verify the stored server is actually available, if not, find working one
-            const isHealthy = await checkServerHealth(currentServer);
-            if (!isHealthy) {
-                console.warn(`⚠️ Stored server (${SERVERS[currentServer].name}) is not available, finding alternative...`);
-                await findWorkingServer();
-            }
-        } else {
-            // No stored preference, find working server
-            await findWorkingServer();
+const findWorkingServer = (window.Wavespeed?.Server?.findWorkingServer)
+    ? async function() {
+        // If Server module function exists, call it with proper context and sync state
+        const ServerModule = window.Wavespeed.Server;
+        const result = await ServerModule.findWorkingServer.call(ServerModule);
+        if (result) {
+            // Sync server state from Server module back to content.js variables
+            currentServer = State.currentServer || 'local';
+            API_BASE_URL = State.API_BASE_URL || SERVERS[currentServer].api;
+            SERVER_BASE_URL = State.SERVER_BASE_URL || SERVERS[currentServer].base;
+            updateServerVars();
         }
-    } catch (e) {
-        console.warn('Could not load server preference:', e);
-        // On error, try to find working server
-        await findWorkingServer();
+        return result;
     }
-})();
+    : async function() {
+        // Try local first
+        console.log('🔍 Checking local server...');
+        if (await checkServerHealth('local')) {
+            currentServer = 'local';
+            API_BASE_URL = SERVERS.local.api;
+            SERVER_BASE_URL = SERVERS.local.base;
+            updateServerVars(); // Sync to State module
+            console.log(`✅ Using ${SERVERS.local.name}`);
+            await chrome.storage.local.set({ activeServer: 'local' });
+            updateServerStatusIndicator();
+            return true;
+        }
+        
+        // Fallback to cloud
+        if (!CLOUD_SERVER_ENABLED) {
+            console.warn('☁️ Cloud server fallback disabled. No other servers available.');
+            return false;
+        }
+        console.log('🔍 Checking cloud server...');
+        if (await checkServerHealth('cloud')) {
+            currentServer = 'cloud';
+            API_BASE_URL = SERVERS.cloud.api;
+            SERVER_BASE_URL = SERVERS.cloud.base;
+            updateServerVars(); // Sync to State module
+            console.log(`✅ Using ${SERVERS.cloud.name}`);
+            await chrome.storage.local.set({ activeServer: 'cloud' });
+            updateServerStatusIndicator();
+            return true;
+        }
+        
+        console.log('❌ No servers available');
+        return false;
+    };
 
-// Background-proxied fetch to avoid mixed content/CORS on HTTPS pages with automatic fallback
-async function apiFetch(url, options = {}, retryCount = 0) {
+const backgroundFetch = Server.backgroundFetch || async function(url, options = {}) {
+    return new Promise((resolve, reject) => {
+        try {
+            chrome.runtime.sendMessage({ action: 'apiFetch', url, options }, (response) => {
+                if (chrome.runtime.lastError) {
+                    const errorMsg = chrome.runtime.lastError.message;
+                    if (errorMsg.includes('Extension context invalidated') || 
+                        errorMsg.includes('message port closed') ||
+                        errorMsg.includes('Could not establish connection')) {
+                        return reject(new Error('Extension was reloaded. Please refresh this page to continue.'));
+                    }
+                    return reject(new Error(errorMsg));
+                }
+                if (!response) {
+                    return reject(new Error('No response from background fetch'));
+                }
+                resolve(response);
+            });
+        } catch (error) {
+            if (error.message && (error.message.includes('Extension context invalidated') || 
+                error.message.includes('message port closed'))) {
+                reject(new Error('Extension was reloaded. Please refresh this page to continue.'));
+            } else {
+                reject(error);
+            }
+        }
+    });
+};
+
+// Use apiFetch from Server module
+const apiFetch = Server.apiFetch || async function(url, options = {}, retryCount = 0) {
     return new Promise(async (resolve, reject) => {
         try {
             // Increase timeout to 30 seconds
@@ -3711,42 +3756,19 @@ async function apiFetch(url, options = {}, retryCount = 0) {
     });
 }
 
-async function backgroundFetch(url, options = {}) {
-    return new Promise((resolve, reject) => {
-        try {
-            chrome.runtime.sendMessage({ action: 'apiFetch', url, options }, (response) => {
-                if (chrome.runtime.lastError) {
-                    const errorMsg = chrome.runtime.lastError.message;
-                    // Handle extension context invalidation
-                    if (errorMsg.includes('Extension context invalidated') || 
-                        errorMsg.includes('message port closed') ||
-                        errorMsg.includes('Could not establish connection')) {
-                        return reject(new Error('Extension was reloaded. Please refresh this page to continue.'));
-                    }
-                    return reject(new Error(errorMsg));
-                }
-                if (!response) {
-                    return reject(new Error('No response from background fetch'));
-                }
-                resolve(response);
-            });
-        } catch (error) {
-            // Catch extension context invalidation errors
-            if (error.message && (error.message.includes('Extension context invalidated') || 
-                error.message.includes('message port closed'))) {
-                reject(new Error('Extension was reloaded. Please refresh this page to continue.'));
-            } else {
-            reject(error);
-            }
-        }
-    });
-}
+// Use state from State module
+let currentSortBy = State.currentSortBy || 'newest';
+let expandedReplies = State.expandedReplies || new Set();
 
-// Add this at the top of the file with other global variables
-let currentSortBy = 'newest';
-
-// Track expanded replies state
-let expandedReplies = new Set();
+// Sync state back to State module when changed
+const originalSetCurrentSortBy = (value) => {
+    currentSortBy = value;
+    if (State.currentSortBy !== undefined) State.currentSortBy = value;
+};
+const originalSetExpandedReplies = (value) => {
+    expandedReplies = value;
+    if (State.expandedReplies !== undefined) State.expandedReplies = value;
+};
 
 // Load and display comments with retry logic
 async function loadComments(sortBy = currentSortBy, retryCount = 0) {
@@ -6585,8 +6607,33 @@ async function submitComment() {
     }
 }
 
+// Track pending reaction requests to prevent double-clicks
+const pendingReactions = new Set();
+
 // Handle like/dislike actions
 async function handleLikeDislike(commentId, action) {
+    // Create a unique key for this reaction request
+    const reactionKey = `${commentId}-${action}`;
+    
+    // If this reaction is already pending, ignore the click
+    if (pendingReactions.has(reactionKey)) {
+        console.log(`Reaction ${reactionKey} already pending, ignoring click`);
+        return;
+    }
+    
+    // Mark this reaction as pending
+    pendingReactions.add(reactionKey);
+    
+    // Disable the button while request is in progress
+    const commentElement = document.querySelector(`.comment[data-comment-id="${commentId}"]`);
+    const button = commentElement ? commentElement.querySelector(`.${action}-btn`) : null;
+    const wasDisabled = button ? button.disabled : false;
+    if (button) {
+        button.disabled = true;
+        button.style.opacity = '0.6';
+        button.style.cursor = 'not-allowed';
+    }
+    
     try {
         let userEmail;
         try {
@@ -6594,11 +6641,25 @@ async function handleLikeDislike(commentId, action) {
             userEmail = result.user ? result.user.email : null;
         } catch (chromeError) {
             console.warn('Chrome storage access failed in handleLikeDislike:', chromeError);
+            // Clean up and return
+            pendingReactions.delete(reactionKey);
+            if (button) {
+                button.disabled = false;
+                button.style.opacity = '';
+                button.style.cursor = '';
+            }
             return; // Silently fail if we can't get user data
         }
         
         if (!userEmail) {
             // Silently fail if user is not logged in.
+            // Clean up and return
+            pendingReactions.delete(reactionKey);
+            if (button) {
+                button.disabled = false;
+                button.style.opacity = '';
+                button.style.cursor = '';
+            }
             return;
         }
 
@@ -6618,29 +6679,108 @@ async function handleLikeDislike(commentId, action) {
         console.log('Reaction updated successfully:', updatedComment);
         
         // Update the UI without reloading all comments to prevent flashing
-        const commentElement = document.querySelector(`.comment[data-comment-id="${commentId}"]`);
         if (commentElement && updatedComment) {
-            // Update counts based on action type
+            // Update counts and toggle classes based on action type
             const likeBtn = commentElement.querySelector('.like-btn');
             const dislikeBtn = commentElement.querySelector('.dislike-btn');
             const trustBtn = commentElement.querySelector('.trust-btn');
             const distrustBtn = commentElement.querySelector('.distrust-btn');
             const flagBtn = commentElement.querySelector('.flag-btn');
             
-            if (likeBtn) likeBtn.textContent = `👍 ${updatedComment.likes || 0}`;
-            if (dislikeBtn) dislikeBtn.textContent = `👎 ${updatedComment.dislikes || 0}`;
-            if (trustBtn) trustBtn.textContent = `✅ ${updatedComment.trusts || 0}`;
-            if (distrustBtn) distrustBtn.textContent = `❌ ${updatedComment.distrusts || 0}`;
-            if (flagBtn) flagBtn.textContent = `🚩 ${updatedComment.flags || 0}`;
+            // Check if user has reacted
+            const isLiked = updatedComment.likedBy && updatedComment.likedBy.includes(userEmail);
+            const isDisliked = updatedComment.dislikedBy && updatedComment.dislikedBy.includes(userEmail);
+            const isTrusted = updatedComment.trustedBy && updatedComment.trustedBy.includes(userEmail);
+            const isDistrusted = updatedComment.distrustedBy && updatedComment.distrustedBy.includes(userEmail);
+            const isFlagged = updatedComment.flaggedBy && updatedComment.flaggedBy.includes(userEmail);
+            
+            // Update like button
+            if (likeBtn) {
+                likeBtn.innerHTML = `${getActionIcon('like', 16)} ${updatedComment.likes || 0}`;
+                if (isLiked) {
+                    likeBtn.classList.add('liked');
+                } else {
+                    likeBtn.classList.remove('liked');
+                }
+            }
+            
+            // Update dislike button
+            if (dislikeBtn) {
+                dislikeBtn.innerHTML = `${getActionIcon('dislike', 16)} ${updatedComment.dislikes || 0}`;
+                if (isDisliked) {
+                    dislikeBtn.classList.add('disliked');
+                } else {
+                    dislikeBtn.classList.remove('disliked');
+                }
+            }
+            
+            // Update trust button
+            if (trustBtn) {
+                trustBtn.innerHTML = `${getActionIcon('trust', 16)} ${updatedComment.trusts || 0}`;
+                if (isTrusted) {
+                    trustBtn.classList.add('trusted');
+                } else {
+                    trustBtn.classList.remove('trusted');
+                }
+            }
+            
+            // Update distrust button
+            if (distrustBtn) {
+                distrustBtn.innerHTML = `${getActionIcon('distrust', 16)} ${updatedComment.distrusts || 0}`;
+                if (isDistrusted) {
+                    distrustBtn.classList.add('distrusted');
+                } else {
+                    distrustBtn.classList.remove('distrusted');
+                }
+            }
+            
+            // Update flag button
+            if (flagBtn) {
+                flagBtn.innerHTML = `${getActionIcon('flag', 16)} ${updatedComment.flags || 0}`;
+                if (isFlagged) {
+                    flagBtn.classList.add('flagged');
+                } else {
+                    flagBtn.classList.remove('flagged');
+                }
+            }
         }
     } catch (error) {
         console.error('Failed to update like/dislike:', error);
         // The alert has been removed from here.
+    } finally {
+        // Remove from pending set and re-enable button
+        pendingReactions.delete(reactionKey);
+        if (button) {
+            button.disabled = false;
+            button.style.opacity = '';
+            button.style.cursor = '';
+        }
     }
 }
 
 // Handle reply reactions (like/dislike/trust/distrust)
 async function handleReplyReaction(commentId, replyId, action) {
+    // Create a unique key for this reaction request
+    const reactionKey = `reply-${replyId}-${action}`;
+    
+    // If this reaction is already pending, ignore the click
+    if (pendingReactions.has(reactionKey)) {
+        console.log(`Reaction ${reactionKey} already pending, ignoring click`);
+        return;
+    }
+    
+    // Mark this reaction as pending
+    pendingReactions.add(reactionKey);
+    
+    // Disable the button while request is in progress
+    const replyElement = document.querySelector(`.reply[data-reply-id="${replyId}"]`);
+    const button = replyElement ? replyElement.querySelector(`.${action}-reply-btn`) : null;
+    if (button) {
+        button.disabled = true;
+        button.style.opacity = '0.6';
+        button.style.cursor = 'not-allowed';
+    }
+    
     try {
         let userEmail;
         try {
@@ -6648,11 +6788,25 @@ async function handleReplyReaction(commentId, replyId, action) {
             userEmail = result.user ? result.user.email : null;
         } catch (chromeError) {
             console.warn('Chrome storage access failed in handleReplyReaction:', chromeError);
+            // Clean up and return
+            pendingReactions.delete(reactionKey);
+            if (button) {
+                button.disabled = false;
+                button.style.opacity = '';
+                button.style.cursor = '';
+            }
             return; // Silently fail if we can't get user data
         }
         
         if (!userEmail) {
             // Silently fail if user is not logged in.
+            // Clean up and return
+            pendingReactions.delete(reactionKey);
+            if (button) {
+                button.disabled = false;
+                button.style.opacity = '';
+                button.style.cursor = '';
+            }
             return;
         }
 
@@ -6692,16 +6846,75 @@ async function handleReplyReaction(commentId, replyId, action) {
                 const distrustBtn = replyElement.querySelector('.distrust-reply-btn');
                 const flagBtn = replyElement.querySelector('.flag-reply-btn');
                 
-                if (likeBtn) likeBtn.textContent = `👍 ${updatedReply.likes || 0}`;
-                if (dislikeBtn) dislikeBtn.textContent = `👎 ${updatedReply.dislikes || 0}`;
-                if (trustBtn) trustBtn.textContent = `✅ ${updatedReply.trusts || 0}`;
-                if (distrustBtn) distrustBtn.textContent = `❌ ${updatedReply.distrusts || 0}`;
-                if (flagBtn) flagBtn.textContent = `🚩 ${updatedReply.flags || 0}`;
+                // Check if user has reacted
+                const isLiked = updatedReply.likedBy && updatedReply.likedBy.includes(userEmail);
+                const isDisliked = updatedReply.dislikedBy && updatedReply.dislikedBy.includes(userEmail);
+                const isTrusted = updatedReply.trustedBy && updatedReply.trustedBy.includes(userEmail);
+                const isDistrusted = updatedReply.distrustedBy && updatedReply.distrustedBy.includes(userEmail);
+                const isFlagged = updatedReply.flaggedBy && updatedReply.flaggedBy.includes(userEmail);
+                
+                // Update like button
+                if (likeBtn) {
+                    likeBtn.innerHTML = `${getActionIcon('like', 16)} ${updatedReply.likes || 0}`;
+                    if (isLiked) {
+                        likeBtn.classList.add('liked');
+                    } else {
+                        likeBtn.classList.remove('liked');
+                    }
+                }
+                
+                // Update dislike button
+                if (dislikeBtn) {
+                    dislikeBtn.innerHTML = `${getActionIcon('dislike', 16)} ${updatedReply.dislikes || 0}`;
+                    if (isDisliked) {
+                        dislikeBtn.classList.add('disliked');
+                    } else {
+                        dislikeBtn.classList.remove('disliked');
+                    }
+                }
+                
+                // Update trust button
+                if (trustBtn) {
+                    trustBtn.innerHTML = `${getActionIcon('trust', 16)} ${updatedReply.trusts || 0}`;
+                    if (isTrusted) {
+                        trustBtn.classList.add('trusted');
+                    } else {
+                        trustBtn.classList.remove('trusted');
+                    }
+                }
+                
+                // Update distrust button
+                if (distrustBtn) {
+                    distrustBtn.innerHTML = `${getActionIcon('distrust', 16)} ${updatedReply.distrusts || 0}`;
+                    if (isDistrusted) {
+                        distrustBtn.classList.add('distrusted');
+                    } else {
+                        distrustBtn.classList.remove('distrusted');
+                    }
+                }
+                
+                // Update flag button
+                if (flagBtn) {
+                    flagBtn.innerHTML = `${getActionIcon('flag', 16)} ${updatedReply.flags || 0}`;
+                    if (isFlagged) {
+                        flagBtn.classList.add('flagged');
+                    } else {
+                        flagBtn.classList.remove('flagged');
+                    }
+                }
             }
         }
     } catch (error) {
         console.error('Failed to update reply reaction:', error);
         // The alert has been removed from here.
+    } finally {
+        // Remove from pending set and re-enable button
+        pendingReactions.delete(reactionKey);
+        if (button) {
+            button.disabled = false;
+            button.style.opacity = '';
+            button.style.cursor = '';
+        }
     }
 }
 
@@ -7404,6 +7617,7 @@ function renderComments(comments, userEmail, currentUrl) {
         const isDisliked = comment.dislikedBy && comment.dislikedBy.includes(userEmail);
         const isTrusted = comment.trustedBy && comment.trustedBy.includes(userEmail);
         const isDistrusted = comment.distrustedBy && comment.distrustedBy.includes(userEmail);
+        const isFlagged = comment.flaggedBy && comment.flaggedBy.includes(userEmail);
         // Convert markdown images to HTML <img> tags
         const commentTextWithImages = comment.text.replace(/!\[([^\]]*)\]\(([^\)]+)\)/g, '<img src="$2" alt="$1" style="max-width: 100%; max-height: 200px; display: block; margin: 8px 0;">');
         const repliesCount = comment.replies && comment.replies.length ? comment.replies.length : 0;
@@ -7426,11 +7640,11 @@ function renderComments(comments, userEmail, currentUrl) {
                 <div class="comment-text" id="comment-text-${comment._id}">${commentTextWithImages}</div>
                 <div class="comment-actions">
                     <button class="action-btn reply-btn" data-comment-id="${comment._id}" title="Reply">${getActionIcon('reply', 16)} Reply</button>
-                    <button class="action-btn like-btn" data-comment-id="${comment._id}" title="Like">${getActionIcon('like', 16)} ${comment.likes || 0}</button>
-                    <button class="action-btn dislike-btn" data-comment-id="${comment._id}" title="Dislike">${getActionIcon('dislike', 16)} ${comment.dislikes || 0}</button>
-                    <button class="action-btn trust-btn" data-comment-id="${comment._id}" title="Trust">${getActionIcon('trust', 16)} ${comment.trusts || 0}</button>
-                    <button class="action-btn distrust-btn" data-comment-id="${comment._id}" title="Distrust">${getActionIcon('distrust', 16)} ${comment.distrusts || 0}</button>
-                    <button class="action-btn flag-btn" data-comment-id="${comment._id}" title="Report">${getActionIcon('flag', 16)} ${comment.flags || 0}</button>
+                    <button class="action-btn like-btn ${isLiked ? 'liked' : ''}" data-comment-id="${comment._id}" title="Like">${getActionIcon('like', 16)} ${comment.likes || 0}</button>
+                    <button class="action-btn dislike-btn ${isDisliked ? 'disliked' : ''}" data-comment-id="${comment._id}" title="Dislike">${getActionIcon('dislike', 16)} ${comment.dislikes || 0}</button>
+                    <button class="action-btn trust-btn ${isTrusted ? 'trusted' : ''}" data-comment-id="${comment._id}" title="Trust">${getActionIcon('trust', 16)} ${comment.trusts || 0}</button>
+                    <button class="action-btn distrust-btn ${isDistrusted ? 'distrusted' : ''}" data-comment-id="${comment._id}" title="Distrust">${getActionIcon('distrust', 16)} ${comment.distrusts || 0}</button>
+                    <button class="action-btn flag-btn ${isFlagged ? 'flagged' : ''}" data-comment-id="${comment._id}" title="Report">${getActionIcon('flag', 16)} ${comment.flags || 0}</button>
                     ${comment.user?.email === userEmail ? `
                         <button class="action-btn edit-btn" data-comment-id="${comment._id}" title="Edit comment">${getActionIcon('edit', 16)}</button>
                         <button class="action-btn delete-btn" data-comment-id="${comment._id}" title="Delete comment">${getActionIcon('delete', 16)}</button>
@@ -8882,14 +9096,36 @@ function initializeCommentInputVerticalResize() {
 console.log('=== EXTENSION LOADED ===');
 console.log('Content script version:', Date.now());
 console.log('Reply button fix applied - version 1.1');
+console.log('Wavespeed modules loaded:', {
+    Utils: !!window.Wavespeed?.Utils,
+    Icons: !!window.Wavespeed?.Icons,
+    Config: !!window.Wavespeed?.Config,
+    State: !!window.Wavespeed?.State,
+    Server: !!window.Wavespeed?.Server
+});
+
+// Ensure functions are available before creating panel
+if (typeof getSectionIcon !== 'function') {
+    console.warn('getSectionIcon not found, using fallback');
+    window.getSectionIcon = function() { return ''; };
+}
+if (typeof getActionIcon !== 'function') {
+    console.warn('getActionIcon not found, using fallback');
+    window.getActionIcon = function() { return ''; };
+}
+
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         if (!document.getElementById('webpage-comments-panel')) {
-            createCommentsPanel();
+            createCommentsPanel().catch(err => {
+                console.error('Failed to create comments panel:', err);
+            });
         }
     }, { once: true });
 } else {
-    createCommentsPanel();
+    createCommentsPanel().catch(err => {
+        console.error('Failed to create comments panel:', err);
+    });
 }
 
 // Listen for messages from popup to reopen panel
