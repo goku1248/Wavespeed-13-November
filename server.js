@@ -138,7 +138,8 @@ const replySchema = new mongoose.Schema({
   user: {
     name: String,
     email: String,
-    picture: String
+    picture: String,
+    username: String
   },
   timestamp: Date,
   likes: { type: Number, default: 0 },
@@ -161,7 +162,8 @@ const commentSchema = new mongoose.Schema({
     user: {
         name: String,
         email: String,
-        picture: String
+        picture: String,
+        username: String
     },
     timestamp: Date,
     likes: { type: Number, default: 0 },
@@ -187,7 +189,8 @@ const separateReplySchema = new mongoose.Schema({
   user: {
     name: String,
     email: String,
-    picture: String
+    picture: String,
+    username: String
   },
   timestamp: { type: Date, default: Date.now },
   likes: { type: Number, default: 0 },
@@ -209,12 +212,14 @@ const messageSchema = new mongoose.Schema({
     from: {
         name: String,
         email: String,
-        picture: String
+        picture: String,
+        username: String
     },
     to: {
         name: String,
         email: String,
-        picture: String
+        picture: String,
+        username: String
     },
     participants: [String], // [from.email, to.email] for direct messages, or all group members for group messages
     text: { type: String, required: true },
@@ -2393,9 +2398,9 @@ function findRepliesByUser(replies, userEmail, commentId) {
     return userReplies;
 }
 
-// Helper function to get user info (name, picture) from User collection or comments/replies
+// Helper function to get user info (name, picture, username) from User collection or comments/replies
 async function getUserInfo(email) {
-    if (!email) return { name: 'Unknown User', picture: null };
+    if (!email) return { name: 'Unknown User', picture: null, username: null };
     
     try {
         // First try to get from User collection
@@ -2403,7 +2408,8 @@ async function getUserInfo(email) {
         if (user) {
             return {
                 name: user.name || email.split('@')[0],
-                picture: user.picture || null
+                picture: user.picture || null,
+                username: user.username || null
             };
         }
         
@@ -2412,7 +2418,8 @@ async function getUserInfo(email) {
         if (comment && comment.user) {
             return {
                 name: comment.user.name || email.split('@')[0],
-                picture: comment.user.picture || null
+                picture: comment.user.picture || null,
+                username: comment.user.username || null
             };
         }
         
@@ -2423,7 +2430,8 @@ async function getUserInfo(email) {
                 if (reply.user && reply.user.email === email) {
                     return {
                         name: reply.user.name || email.split('@')[0],
-                        picture: reply.user.picture || null
+                        picture: reply.user.picture || null,
+                        username: reply.user.username || null
                     };
                 }
             }
@@ -2432,13 +2440,15 @@ async function getUserInfo(email) {
         // Fallback: use email prefix as name
         return {
             name: email.split('@')[0],
-            picture: null
+            picture: null,
+            username: null
         };
     } catch (error) {
         console.error('Error fetching user info:', error);
         return {
             name: email.split('@')[0],
-            picture: null
+            picture: null,
+            username: null
         };
     }
 }

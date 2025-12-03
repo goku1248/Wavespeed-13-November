@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern Comment Icons Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            background: #f8fafc;
+        }
+        
+        .test-container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            color: #1f2937;
+            margin-bottom: 30px;
+        }
+        
+        .icon-section {
+            margin-bottom: 30px;
+        }
+        
+        .icon-section h2 {
+            color: #374151;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        .icon-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .icon-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px;
+            background: #f9fafb;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+        }
+        
+        .icon-item svg {
+            flex-shrink: 0;
+        }
+        
+        .icon-name {
+            font-weight: 500;
+            color: #374151;
+        }
+        
+        /* Action buttons styling - copied from styles.css */
+        .action-btn {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.9) 100%);
+            border: 1px solid rgba(102, 126, 234, 0.15);
+            border-radius: 12px;
+            padding: 8px 14px;
+            margin: 3px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            min-width: 42px;
+            height: 34px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            white-space: nowrap;
+            font-weight: 600;
+            color: #4a5568;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            backdrop-filter: blur(10px);
+        }
+
+        .action-btn svg {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+        }
+
+        .action-btn:hover {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #ffffff;
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: 0 6px 16px rgba(102, 126, 234, 0.3);
+            border-color: rgba(102, 126, 234, 0.4);
+        }
+
+        .action-btn.liked {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-color: #2196f3;
+            color: #1976d2;
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.25);
+        }
+
+        .action-btn.trusted {
+            background: linear-gradient(135deg, #e8f5e8 0%, #c8e6c9 100%);
+            border-color: #4caf50;
+            color: #388e3c;
+            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.25);
+        }
+
+        /* Header Control Buttons */
+        .header-control-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            margin-left: 4px;
+            padding: 8px;
+            border-radius: 8px;
+            color: #6b7280;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+        }
+
+        .header-control-btn:hover {
+            background: rgba(107, 114, 128, 0.1);
+            color: #374151;
+            transform: scale(1.05);
+        }
+
+        .header-control-btn.close-btn {
+            color: #ef4444;
+        }
+
+        .header-control-btn.close-btn:hover {
+            background: rgba(239, 68, 68, 0.1);
+            color: #dc2626;
+        }
+
+        .header-control-btn svg {
+            width: 18px;
+            height: 18px;
+        }
+        
+        .button-demo {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Modern Comment Icons Test</h1>
+        
+        <div class="icon-section">
+            <h2>Action Icons (16px)</h2>
+            <div class="icon-grid" id="action-icons"></div>
+        </div>
+        
+        <div class="icon-section">
+            <h2>Header Control Icons (18px)</h2>
+            <div class="icon-grid" id="header-icons"></div>
+        </div>
+        
+        <div class="icon-section">
+            <h2>Action Buttons Demo</h2>
+            <div class="button-demo" id="action-buttons"></div>
+        </div>
+        
+        <div class="icon-section">
+            <h2>Header Control Buttons Demo</h2>
+            <div class="button-demo" id="header-buttons"></div>
+        </div>
+    </div>
+
+    <script>
+        // Modern Action Icon System for Comment Buttons
+        function getActionIcon(action, size = 16) {
+            const icons = {
+                'reply': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 11.5C21.0034 12.8199 20.6951 14.1219 20.1 15.3C19.3944 16.7118 18.3098 17.8992 16.9674 18.7293C15.6251 19.5594 14.0782 19.9994 12.5 20C11.1801 20.0035 9.87812 19.6951 8.7 19.1L3 21L4.9 15.3C4.30493 14.1219 3.99656 12.8199 4 11.5C4.00061 9.92179 4.44061 8.37488 5.27072 7.03258C6.10083 5.69028 7.28825 4.6056 8.7 3.90003C9.87812 3.30496 11.1801 2.99659 12.5 3.00003H13C15.0843 3.11502 17.053 3.99479 18.5291 5.47089C20.0052 6.94699 20.885 8.91568 21 11V11.5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>`,
+                'like': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M7 10V20L16 20C16.5304 20 17.0391 19.7893 17.4142 19.4142C17.7893 19.0391 18 18.5304 18 18V13.2C18 12.8836 17.9741 12.5685 17.923 12.2581L17.293 8.96C17.1631 8.41 16.7556 8 16.2 8H12M7 10L12 8V4C12 3.46957 11.7893 2.96086 11.4142 2.58579C11.0391 2.21071 10.5304 2 10 2H9C8.46957 2 7.96086 2.21071 7.58579 2.58579C7.21071 2.96086 7 3.46957 7 4V10ZM7 10H4C3.46957 10 2.96086 10.2107 2.58579 10.5858C2.21071 10.9609 2 11.4696 2 12V18C2 18.5304 2.21071 19.0391 2.58579 19.4142C2.96086 19.7893 3.46957 20 4 20H7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>`,
+                'dislike': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M17 14V4L8 4C7.46957 4 6.96086 4.21071 6.58579 4.58579C6.21071 4.96086 6 5.46957 6 6V10.8C6 11.1164 6.02588 11.4315 6.077 11.7419L6.707 15.04C6.83688 15.59 7.24437 16 7.8 16H12M17 14L12 16V20C12 20.5304 12.2107 21.0391 12.5858 21.4142C12.9609 21.7893 13.4696 22 14 22H15C15.5304 22 16.0391 21.7893 16.4142 21.4142C16.7893 21.0391 17 20.5304 17 20V14ZM17 14H20C20.5304 14 21.0391 13.7893 21.4142 13.4142C21.7893 13.0391 22 12.5304 22 12V6C22 5.46957 21.7893 4.96086 21.4142 4.58579C21.0391 4.21071 20.5304 4 20 4H17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>`,
+                'trust': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L15.09 8.26L22 9L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9L8.91 8.26L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="currentColor"/>
+                </svg>`,
+                'distrust': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                    <path d="M15 9L9 15M9 9L15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>`,
+                'flag': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M4 15S6 13 8 13S12 15 14 15S18 13 20 13V3S18 5 16 5S12 3 10 3S6 5 4 5V15Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M4 22V15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>`,
+                'edit': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M11 4H4C3.46957 4 2.96086 4.21071 2.58579 4.58579C2.21071 4.96086 2 5.46957 2 6V20C2 20.5304 2.21071 21.0391 2.58579 21.4142C2.96086 21.7893 3.46957 22 4 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M18.5 2.50023C18.8978 2.1024 19.4374 1.87891 20 1.87891C20.5626 1.87891 21.1022 2.1024 21.5 2.50023C21.8978 2.89805 22.1213 3.43762 22.1213 4.00023C22.1213 4.56284 21.8978 5.1024 21.5 5.50023L12 15.0002L8 16.0002L9 12.0002L18.5 2.50023Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>`,
+                'delete': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 6H5H21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M10 11V17M14 11V17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>`,
+                'refresh': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M23 4V10H17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M20.49 15C19.9828 16.8399 18.8927 18.4815 17.4015 19.6586C15.9103 20.8357 14.0992 21.4836 12.2301 21.4992C10.3609 21.5148 8.54085 20.8974 7.03251 19.7398C5.52417 18.5822 4.40967 16.9468 3.86473 15.1134C3.31979 13.2801 3.37537 11.3364 4.02556 9.53752C4.67575 7.73869 5.88985 6.17477 7.48846 5.08618C9.08707 3.99759 10.9926 3.44536 12.9016 3.50024C14.8106 3.55512 16.6844 4.21418 18.21 5.38L23 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>`,
+                'minimize': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M6 12H18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>`,
+                'maximize': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M8 3H5C4.46957 3 3.96086 3.21071 3.58579 3.58579C3.21071 3.96086 3 4.46957 3 5V8M21 8V5C21 4.46957 20.7893 3.96086 20.4142 3.58579C20.0391 3.21071 19.5304 3 19 3H16M16 21H19C19.5304 21 20.0391 20.7893 20.4142 20.4142C20.7893 20.0391 21 19.5304 21 19V16M3 16V19C3 19.5304 3.21071 20.0391 3.58579 20.4142C3.96086 20.7893 4.46957 21 5 21H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>`,
+                'close': `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>`
+            };
+            return icons[action] || icons['reply'];
+        }
+
+        // Display action icons
+        const actionIconsContainer = document.getElementById('action-icons');
+        const actionIcons = ['reply', 'like', 'dislike', 'trust', 'distrust', 'flag', 'edit', 'delete'];
+        
+        actionIcons.forEach(icon => {
+            const iconItem = document.createElement('div');
+            iconItem.className = 'icon-item';
+            iconItem.innerHTML = `
+                ${getActionIcon(icon, 16)}
+                <span class="icon-name">${icon}</span>
+            `;
+            actionIconsContainer.appendChild(iconItem);
+        });
+
+        // Display header control icons
+        const headerIconsContainer = document.getElementById('header-icons');
+        const headerIcons = ['refresh', 'minimize', 'maximize', 'close'];
+        
+        headerIcons.forEach(icon => {
+            const iconItem = document.createElement('div');
+            iconItem.className = 'icon-item';
+            iconItem.innerHTML = `
+                ${getActionIcon(icon, 18)}
+                <span class="icon-name">${icon}</span>
+            `;
+            headerIconsContainer.appendChild(iconItem);
+        });
+
+        // Display action buttons demo
+        const actionButtonsContainer = document.getElementById('action-buttons');
+        const actionButtons = [
+            { icon: 'reply', text: 'Reply', class: '' },
+            { icon: 'like', text: '5', class: 'liked' },
+            { icon: 'dislike', text: '2', class: '' },
+            { icon: 'trust', text: '8', class: 'trusted' },
+            { icon: 'distrust', text: '1', class: '' },
+            { icon: 'flag', text: '0', class: '' },
+            { icon: 'edit', text: '', class: '' },
+            { icon: 'delete', text: '', class: '' }
+        ];
+        
+        actionButtons.forEach(btn => {
+            const button = document.createElement('button');
+            button.className = `action-btn ${btn.class}`;
+            button.innerHTML = `${getActionIcon(btn.icon, 16)} ${btn.text}`;
+            actionButtonsContainer.appendChild(button);
+        });
+
+        // Display header control buttons demo
+        const headerButtonsContainer = document.getElementById('header-buttons');
+        const headerButtons = [
+            { icon: 'refresh', class: '' },
+            { icon: 'minimize', class: '' },
+            { icon: 'maximize', class: '' },
+            { icon: 'close', class: 'close-btn' }
+        ];
+        
+        headerButtons.forEach(btn => {
+            const button = document.createElement('button');
+            button.className = `header-control-btn ${btn.class}`;
+            button.innerHTML = getActionIcon(btn.icon, 18);
+            headerButtonsContainer.appendChild(button);
+        });
+    </script>
+</body>
+</html>
